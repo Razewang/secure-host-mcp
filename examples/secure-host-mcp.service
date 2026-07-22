@@ -1,0 +1,15 @@
+[Unit]
+Description=Secure Host MCP
+After=network-online.target
+
+[Service]
+Type=simple
+User=secure-host-mcp
+Environment=SECURE_HOST_MCP_HOME=/var/lib/secure-host-mcp
+ExecStart=/usr/local/bin/secure-host-mcp start
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

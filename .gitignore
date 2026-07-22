@@ -1,0 +1,14 @@
+node_modules/
+dist/
+release/
+coverage/
+*.log
+.secure-host-mcp/
+.env
+*.tgz
+
+# Local AI development metadata (never publish with the product repository)
+.agents/
+.codex/
+.trellis/
+AGENTS.md
