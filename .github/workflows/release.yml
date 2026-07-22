@@ -1,0 +1,230 @@
+name: release
+
+on:
+  pull_request:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact package version to build (without v)"
+        required: true
+        type: string
+      publish:
+        description: "Publish GitHub Release and npm package"
+        required: true
+        default: false
+        type: boolean
+      prerelease:
+        description: "Mark a manual publication as a prerelease"
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      publish: ${{ steps.metadata.outputs.publish }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+      npm_tag: ${{ steps.metadata.outputs.npm_tag }}
+      verify_tag: ${{ steps.metadata.outputs.verify_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate release metadata
+        id: metadata
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REQUESTED_PUBLISH: ${{ inputs.publish }}
+          REQUESTED_PRERELEASE: ${{ inputs.prerelease }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const { appendFileSync, readFileSync } = require("node:fs");
+          const { execFileSync } = require("node:child_process");
+          const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+          const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+          const tagRun = process.env.EVENT_NAME === "push";
+          const manualRun = process.env.EVENT_NAME === "workflow_dispatch";
+          const version = tagRun ? process.env.REF_NAME.slice(1) : manualRun ? process.env.REQUESTED_VERSION : pkg.version;
+          if (!semver.test(version)) throw new Error(`Invalid semantic version: ${version}`);
+          if (version !== pkg.version) throw new Error(`Release ${version} does not match package.json ${pkg.version}`);
+          const tag = `v${version}`;
+          if (tagRun && process.env.REF_NAME !== tag) throw new Error(`Tag must be exactly ${tag}`);
+          const publish = tagRun || (manualRun && process.env.REQUESTED_PUBLISH === "true");
+          const prerelease = tagRun || !manualRun ? version.includes("-") : process.env.REQUESTED_PRERELEASE === "true";
+          if (manualRun && publish && !prerelease) {
+            let tagSha;
+            try { tagSha = execFileSync("git", ["rev-list", "-n", "1", tag], { encoding: "utf8" }).trim(); }
+            catch { throw new Error(`Stable manual publication requires existing tag ${tag}`); }
+            if (tagSha !== process.env.SOURCE_SHA) throw new Error(`${tag} does not identify workflow commit ${process.env.SOURCE_SHA}`);
+          }
+          const output = process.env.GITHUB_OUTPUT;
+          for (const [key, value] of Object.entries({ version, tag, publish: String(publish), prerelease: String(prerelease), npm_tag: prerelease ? "next" : "latest", verify_tag: String(tagRun || !prerelease) })) {
+            appendFileSync(output, `${key}=${value}\n`);
+          }
+          NODE
+
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: ubuntu-latest
+            platform: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: 8.0.x
+      - name: Build native Windows launcher
+        if: runner.os == 'Windows'
+        run: dotnet publish packaging/windows-launcher/SecureHostMcpLauncher.csproj -c Release -r win-x64 --self-contained true
+      - name: Build standalone package
+        shell: bash
+        env:
+          SECURE_HOST_MCP_WINDOWS_LAUNCHER: ${{ runner.os == 'Windows' && format('{0}/packaging/windows-launcher/bin/Release/net8.0/win-x64/publish/secure-host-mcp.exe', github.workspace) || '' }}
+        run: npm run package:standalone
+      - name: Smoke-test Windows launchers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $package = "release/secure-host-mcp-win32-x64"
+          & "$package/secure-host-mcp.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "Native launcher smoke test failed" }
+          & "$package/secure-host-mcp.cmd" --version
+          if ($LASTEXITCODE -ne 0) { throw "CMD launcher smoke test failed" }
+      - name: Smoke-test Linux launcher
+        if: runner.os == 'Linux'
+        run: ./release/secure-host-mcp-linux-x64/secure-host-mcp --version
+      - name: Create Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path assets | Out-Null
+          Compress-Archive -Path "release/secure-host-mcp-win32-x64/*" -DestinationPath "assets/secure-host-mcp-${{ needs.preflight.outputs.version }}-windows-x64.zip"
+      - name: Create Linux archive
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p assets
+          tar -C release/secure-host-mcp-linux-x64 -czf "assets/secure-host-mcp-${{ needs.preflight.outputs.version }}-linux-x64.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: assets/*
+          if-no-files-found: error
+
+  assets:
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: assets
+          merge-multiple: true
+      - name: Create checksums and verify allowlist
+        shell: bash
+        run: |
+          cd assets
+          expected="secure-host-mcp-${{ needs.preflight.outputs.version }}-linux-x64.tar.gz secure-host-mcp-${{ needs.preflight.outputs.version }}-windows-x64.zip"
+          actual="$(find . -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ' | sed 's/ $//')"
+          if [ "$actual" != "$expected" ]; then echo "Unexpected assets: $actual" >&2; exit 1; fi
+          sha256sum $expected > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ needs.preflight.outputs.version }}
+          path: assets/*
+          if-no-files-found: error
+
+  publish-release:
+    if: needs.preflight.outputs.publish == 'true'
+    needs: [preflight, assets]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ needs.preflight.outputs.version }}
+          path: assets
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+          PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
+          VERIFY_TAG: ${{ needs.preflight.outputs.verify_tag }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            tag_sha="$(git rev-list -n 1 "$TAG")"
+            if [ "$tag_sha" != "$SOURCE_SHA" ]; then echo "Existing $TAG does not identify $SOURCE_SHA." >&2; exit 1; fi
+            echo "Release $TAG already exists at the expected commit; leaving it unchanged."
+            exit 0
+          fi
+          args=(release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --generate-notes --title "$TAG")
+          if [ "$VERIFY_TAG" = "true" ]; then args+=(--verify-tag); fi
+          if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+          gh "${args[@]}"
+
+  publish-npm:
+    if: needs.preflight.outputs.publish == 'true'
+    needs: [preflight, build, publish-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm install --global npm@latest
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - name: Refuse an existing npm version
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          if npm view "secure-host-mcp@$VERSION" version >/dev/null 2>&1; then
+            echo "secure-host-mcp@$VERSION already exists; refusing to republish." >&2
+            exit 1
+          fi
+      - name: Publish npm package with trusted publishing
+        run: npm publish --access public --tag "${{ needs.preflight.outputs.npm_tag }}"
