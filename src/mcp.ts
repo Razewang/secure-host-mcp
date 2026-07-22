@@ -5,6 +5,7 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Request, Response } from "express";
 import { z } from "zod";
+import { packageVersion } from "./version.js";
 import type { AuditLog } from "./audit.js";
 import { requireScope } from "./auth.js";
 import type { AppConfig } from "./config.js";
@@ -24,7 +25,7 @@ export class McpHost {
   constructor(private readonly config: AppConfig, private readonly executor: CommandExecutor, private readonly tunnels: TunnelManager, private readonly audit: AuditLog, private readonly privilege: PrivilegeClient) {}
 
   private createServer(principal: Principal): McpServer {
-    const server = new McpServer({ name: "secure-host-mcp", version: "0.1.0" });
+    const server = new McpServer({ name: "secure-host-mcp", version: packageVersion() });
     server.registerTool("system_info", { description: "Read host system and privilege information", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } }, async () => { requireScope(principal, "system.read"); return asText(this.executor.systemInfo()); });
     server.registerTool("execute_command", { description: "Execute one command as the MCP service account", inputSchema: commandSchema, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async (input) => {
       requireScope(principal, "command.run"); const result = await this.executor.execute(input); await this.audit.write({ correlationId: result.correlationId, action: "command.execute", principalId: principal.id, success: result.exitCode === 0, command: input.command, stdout: result.stdout, stderr: result.stderr, metadata: { exitCode: result.exitCode, timedOut: result.timedOut } }); return asText(result);

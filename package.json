@@ -2,6 +2,14 @@
   "name": "secure-host-mcp",
   "version": "0.1.0",
   "description": "Cross-platform remote terminal MCP server with OAuth, jobs, tunnels, and auditing",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Razewang/secure-host-mcp.git"
+  },
+  "homepage": "https://github.com/Razewang/secure-host-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Razewang/secure-host-mcp/issues"
+  },
   "type": "module",
   "bin": {
     "secure-host-mcp": "dist/cli.js"
@@ -9,10 +17,14 @@
   "files": [
     "dist",
     "README.md",
+    "README.zh-CN.md",
     "LICENSE"
   ],
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -22,6 +34,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "node dist/cli.js start",
+    "prepack": "npm run build",
     "package:standalone": "node scripts/package-standalone.mjs"
   },
   "keywords": [

@@ -2,6 +2,8 @@
 
 <p align="center">
   <a href="https://github.com/Razewang/secure-host-mcp/actions/workflows/ci.yml"><img src="https://github.com/Razewang/secure-host-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Razewang/secure-host-mcp/releases/latest"><img src="https://img.shields.io/github/v/release/Razewang/secure-host-mcp?label=Release" alt="Latest release"></a>
+  <a href="https://www.npmjs.com/package/secure-host-mcp"><img src="https://img.shields.io/npm/v/secure-host-mcp?logo=npm" alt="npm"></a>
   <img src="https://img.shields.io/badge/Windows-x64-0078D4?logo=windows" alt="Windows x64">
   <img src="https://img.shields.io/badge/Linux-x64-FCC624?logo=linux&logoColor=000000" alt="Linux x64">
   <img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 20+">
@@ -14,6 +16,25 @@
 </p>
 
 Secure Host MCP exposes a Windows or Linux host terminal to remote MCP clients through Streamable HTTP. It is intentionally powerful: the default owner token can execute any command available to the service account, inspect or launch configured tunnels, and request privileged operations.
+
+## Download a standalone release
+
+Download the archive for your platform from [GitHub Releases](https://github.com/Razewang/secure-host-mcp/releases/latest):
+
+- Windows x64: extract the ZIP and double-click `secure-host-mcp.exe`. On first launch it creates the configuration, displays the owner token once, and starts the MCP and administration servers in a console window.
+- Linux x64: extract the `tar.gz` archive and run `./secure-host-mcp launch` for the same first-run initialization and startup behavior.
+
+No separate Node.js installation is required for these archives. The Windows executable is not code-signed yet, so Microsoft Defender SmartScreen may display an unknown-publisher warning. Verify the download against `SHA256SUMS.txt` before running it.
+
+```powershell
+# Windows PowerShell
+(Get-FileHash .\secure-host-mcp-0.1.0-windows-x64.zip -Algorithm SHA256).Hash
+```
+
+```bash
+# Linux
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
 
 ## Install and first setup
 
@@ -102,3 +123,9 @@ npm pack --dry-run
 ```
 
 Standalone release builds use `npm run package:standalone`. Cross-platform artifacts should be produced and checksummed in release CI.
+
+## Publishing a release
+
+`package.json` is the version source. After updating it and merging the change, push the exact matching tag (for example, `v0.1.0`). GitHub Actions tests and packages both platforms, creates checksums and generated release notes, publishes the GitHub Release, and publishes the same version to npm. Prerelease versions use npm's `next` dist-tag; stable versions use `latest`.
+
+The npm job uses Trusted Publishing with GitHub OIDC and does not require a long-lived npm token in repository secrets. A manual workflow run defaults to validation only and will not publish unless explicitly enabled.

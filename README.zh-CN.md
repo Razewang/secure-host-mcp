@@ -2,6 +2,8 @@
 
 <p align="center">
   <a href="https://github.com/Razewang/secure-host-mcp/actions/workflows/ci.yml"><img src="https://github.com/Razewang/secure-host-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Razewang/secure-host-mcp/releases/latest"><img src="https://img.shields.io/github/v/release/Razewang/secure-host-mcp?label=Release" alt="Latest release"></a>
+  <a href="https://www.npmjs.com/package/secure-host-mcp"><img src="https://img.shields.io/npm/v/secure-host-mcp?logo=npm" alt="npm"></a>
   <img src="https://img.shields.io/badge/Windows-x64-0078D4?logo=windows" alt="Windows x64">
   <img src="https://img.shields.io/badge/Linux-x64-FCC624?logo=linux&logoColor=000000" alt="Linux x64">
   <img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 20+">
@@ -14,6 +16,25 @@
 </p>
 
 Secure Host MCP 通过 Streamable HTTP 将 Windows 或 Linux 主机终端开放给远程 MCP 客户端。它有意提供接近本机终端的强大能力：默认所有者令牌可以执行服务账户有权运行的任何命令、检查或启动已配置的隧道，以及请求提权操作。
+
+## 下载独立发行包
+
+从 [GitHub Releases](https://github.com/Razewang/secure-host-mcp/releases/latest) 下载对应平台的压缩包：
+
+- Windows x64：解压 ZIP 后双击 `secure-host-mcp.exe`。首次运行会创建配置、显示一次所有者令牌，并在控制台窗口中启动 MCP 与管理服务。
+- Linux x64：解压 `tar.gz` 后运行 `./secure-host-mcp launch`，完成相同的首次初始化与启动流程。
+
+这些压缩包不需要另外安装 Node.js。Windows EXE 暂未进行代码签名，因此 Microsoft Defender SmartScreen 可能显示“未知发布者”警告。运行前请使用 `SHA256SUMS.txt` 校验下载文件。
+
+```powershell
+# Windows PowerShell
+(Get-FileHash .\secure-host-mcp-0.1.0-windows-x64.zip -Algorithm SHA256).Hash
+```
+
+```bash
+# Linux
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
 
 ## 安装与首次配置
 
@@ -102,3 +123,9 @@ npm pack --dry-run
 ```
 
 使用 `npm run package:standalone` 构建独立发行包。跨平台产物应在 Release CI 中生成并计算校验和。
+
+## 发布新版本
+
+`package.json` 是唯一版本来源。更新版本并合并后，推送完全匹配的标签（例如 `v0.1.0`）。GitHub Actions 会测试并打包两个平台、生成校验和与 Release Notes、发布 GitHub Release，并把同一版本发布到 npm。预发行版本使用 npm 的 `next` 标签，正式版本使用 `latest`。
+
+npm 发布任务使用 GitHub OIDC Trusted Publishing，不需要在仓库 Secrets 中保存长期 npm 令牌。手动运行工作流时默认只做构建验证，除非明确开启发布，否则不会产生公开版本。

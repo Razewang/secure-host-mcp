@@ -6,6 +6,8 @@ coverage/
 .secure-host-mcp/
 .env
 *.tgz
+packaging/windows-launcher/bin/
+packaging/windows-launcher/obj/
 
 # Local AI development metadata (never publish with the product repository)
 .agents/
