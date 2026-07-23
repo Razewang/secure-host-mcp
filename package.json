@@ -16,6 +16,9 @@
   },
   "files": [
     "dist",
+    "config.example.json",
+    "tokens.example.json",
+    "web",
     "README.md",
     "README.zh-CN.md",
     "LICENSE"

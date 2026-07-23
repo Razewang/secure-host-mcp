@@ -29,10 +29,12 @@ if (platform !== "win32") {
   await chmod(path.join(target, "runtime", runtimeName), 0o755);
 }
 await cp("examples", path.join(target, "examples"), { recursive: true });
+await cp("web", path.join(target, "web"), { recursive: true });
 await copyFile("README.md", path.join(target, "README.md"));
 await copyFile("README.zh-CN.md", path.join(target, "README.zh-CN.md"));
 await copyFile("LICENSE", path.join(target, "LICENSE"));
 await copyFile("config.example.json", path.join(target, "config.example.json"));
+await copyFile("tokens.example.json", path.join(target, "tokens.example.json"));
 await writeFile(path.join(target, "package.json"), `${JSON.stringify({ name: metadata.name, version: metadata.version, license: metadata.license }, null, 2)}\n`);
 
 if (platform === "win32") {

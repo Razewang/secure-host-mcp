@@ -1,7 +1,7 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { AppConfig, ConfigStore, Secrets, TokenRecord } from "./config.js";
+import type { AppConfig, ConfigStore, Secrets, TokenConfig, TokenRecord } from "./config.js";
 import { hashToken, tokenMatches } from "./config.js";
 import { ALL_SCOPES, AppError, type Principal, type Scope } from "./types.js";
 
@@ -12,14 +12,21 @@ declare global { namespace Express { interface Request { principal?: Principal; 
 
 function opaque(): string { return randomBytes(32).toString("base64url"); }
 function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }
+function configuredTokenMatches(actual: string, expected: string): boolean {
+  const actualDigest = Buffer.from(digest(actual), "hex");
+  const expectedDigest = Buffer.from(digest(expected), "hex");
+  return timingSafeEqual(actualDigest, expectedDigest);
+}
 function isScope(value: string): value is Scope { return (ALL_SCOPES as readonly string[]).includes(value); }
 
 export class AuthService {
   private secrets!: Secrets;
+  private tokenConfig?: TokenConfig;
   private externalJwksUri?: string;
   constructor(private readonly config: AppConfig, private readonly store: ConfigStore) {}
   async initialize(): Promise<void> {
     this.secrets = await this.store.loadSecrets();
+    this.tokenConfig = await this.store.loadTokenConfig();
     if (this.config.auth.externalIssuer) {
       const issuer = this.config.auth.externalIssuer.replace(/\/$/, "");
       const response = await fetch(`${issuer}/.well-known/openid-configuration`);
@@ -34,7 +41,13 @@ export class AuthService {
   private async persist(): Promise<void> { await this.store.saveSecrets(this.secrets); }
 
   async authenticate(token: string): Promise<Principal> {
-    const local = this.secrets.tokens.find((record) => tokenMatches(token, record));
+    if (this.tokenConfig && configuredTokenMatches(token, this.tokenConfig.adminToken)) return { id: "owner", clientId: "owner", scopes: [...ALL_SCOPES], method: "bearer" };
+    const configuredIndex = this.tokenConfig?.connectionTokens.findIndex((record) => configuredTokenMatches(token, record.token)) ?? -1;
+    const configured = configuredIndex >= 0 ? this.tokenConfig?.connectionTokens[configuredIndex] : undefined;
+    if (configured) {
+      return { id: `configured:${configuredIndex + 1}`, clientId: `configured:${configuredIndex + 1}`, scopes: configured.scopes, method: "bearer" };
+    }
+    const local = this.secrets.tokens.find((record) => (!this.tokenConfig || record.id !== "owner") && tokenMatches(token, record));
     if (local) return { id: local.id, clientId: local.id, scopes: local.scopes, method: "bearer" };
     const grant = this.grants().find((item) => item.kind === "access" && item.tokenHash === digest(token) && item.expiresAt > Date.now());
     if (grant) return { id: `oauth:${grant.clientId}`, clientId: grant.clientId, scopes: grant.scopes, method: "oauth" };
@@ -59,10 +72,26 @@ export class AuthService {
     }
   };
 
-  requireOwner(token: string): boolean { const owner = this.secrets.tokens.find((item) => item.id === "owner"); return owner ? tokenMatches(token, owner) : false; }
-  listTokens(): Record<string, unknown>[] { return this.secrets.tokens.map(tokenSummary); }
+  requireOwner(token: string): boolean {
+    if (this.tokenConfig) return configuredTokenMatches(token, this.tokenConfig.adminToken);
+    const owner = this.secrets.tokens.find((item) => item.id === "owner");
+    return owner ? tokenMatches(token, owner) : false;
+  }
+  listTokens(): Record<string, unknown>[] {
+    const configured = this.tokenConfig ? [
+      { id: "owner", label: "Host owner", scopes: [...ALL_SCOPES], source: "tokens.json" },
+      ...this.tokenConfig.connectionTokens.map((token, index) => ({ id: `configured:${index + 1}`, label: token.label, scopes: token.scopes, source: "tokens.json" }))
+    ] : [];
+    const managed = this.secrets.tokens.filter((record) => !this.tokenConfig || record.id !== "owner").map(tokenSummary);
+    return [...configured, ...managed];
+  }
   async createToken(label: string, scopes: Scope[]): Promise<{ id: string; token: string; scopes: Scope[] }> { const token = opaque(), salt = randomBytes(16).toString("hex"), id = randomUUID(); this.secrets.tokens.push({ id, label: label.slice(0, 120) || "Agent token", salt, hash: hashToken(token, salt), scopes, createdAt: new Date().toISOString() }); await this.persist(); return { id, token, scopes }; }
-  async revokeToken(id: string): Promise<void> { if (id === "owner") throw new AppError("OWNER_TOKEN", "rotate the owner token instead of deleting it"); this.secrets.tokens = this.secrets.tokens.filter((item) => item.id !== id); await this.persist(); }
+  async revokeToken(id: string): Promise<void> {
+    if (id === "owner") throw new AppError("OWNER_TOKEN", "rotate the owner token in tokens.json instead of deleting it");
+    if (id.startsWith("configured:")) throw new AppError("CONFIG_MANAGED_TOKEN", "remove configured tokens from tokens.json");
+    this.secrets.tokens = this.secrets.tokens.filter((item) => item.id !== id);
+    await this.persist();
+  }
   baseUrl(): string { return this.config.publicBaseUrl ?? `http://${this.config.mcp.host}:${this.config.mcp.port}`; }
   metadata(): Record<string, unknown> { return { issuer: this.baseUrl(), authorization_endpoint: `${this.baseUrl()}/oauth/authorize`, token_endpoint: `${this.baseUrl()}/oauth/token`, revocation_endpoint: `${this.baseUrl()}/oauth/revoke`, registration_endpoint: `${this.baseUrl()}/oauth/register`, response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"], scopes_supported: [...ALL_SCOPES, "offline_access"] }; }
   resourceMetadata(): Record<string, unknown> { return { resource: `${this.baseUrl()}/mcp`, authorization_servers: [this.baseUrl()], scopes_supported: [...ALL_SCOPES] }; }

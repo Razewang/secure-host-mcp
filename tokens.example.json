@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "adminToken": "replace-with-your-administrator-token",
+  "connectionTokens": [
+    {
+      "token": "replace-with-an-agent-connection-token",
+      "label": "Primary agent",
+      "scopes": [
+        "system.read",
+        "command.run",
+        "command.elevate",
+        "tunnel.read",
+        "tunnel.manage",
+        "admin.manage"
+      ]
+    }
+  ]
+}

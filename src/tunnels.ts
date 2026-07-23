@@ -10,6 +10,30 @@ import { AppError } from "./types.js";
 type TunnelKind = "cloudflared" | "frpc";
 const SECRET_KEY = /(token|secret|password|credential|private.?key|cert)/i;
 
+export interface TunnelStatus {
+  installed: boolean;
+  executable?: string;
+  version?: string;
+  configPath?: string;
+  config?: unknown;
+  configError?: string;
+  managedRunning: boolean;
+  pid?: number;
+}
+
+export interface TunnelInspection {
+  cloudflared: TunnelStatus;
+  frpc: TunnelStatus;
+}
+
+export interface TunnelInstallResult {
+  installed: true;
+  kind: TunnelKind;
+  version?: string;
+  destination: string;
+  sha256: string;
+}
+
 function findExecutable(name: string, localBin?: string): string | undefined {
   if (localBin && spawnSync(localBin, ["--version"], { windowsHide: true }).status === 0) return localBin;
   const result = spawnSync(process.platform === "win32" ? "where.exe" : "which", [name], { encoding: "utf8", windowsHide: true });
@@ -25,10 +49,10 @@ export class TunnelManager {
   private readonly processes = new Map<TunnelKind, ChildProcess>();
   constructor(private readonly config: AppConfig) {}
 
-  async inspect(): Promise<Record<string, unknown>> {
+  async inspect(): Promise<TunnelInspection> {
     return { cloudflared: await this.inspectOne("cloudflared"), frpc: await this.inspectOne("frpc") };
   }
-  private async inspectOne(kind: TunnelKind): Promise<Record<string, unknown>> {
+  private async inspectOne(kind: TunnelKind): Promise<TunnelStatus> {
     const executable = this.executable(kind); const configPath = kind === "cloudflared" ? await this.cloudflaredConfig() : this.config.tunnels.frpcConfig;
     let parsed: unknown, error: string | undefined;
     if (configPath) try { const raw = await readFile(configPath, "utf8"); parsed = redact(YAML.parse(raw)); } catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
@@ -46,7 +70,7 @@ export class TunnelManager {
   }
   stop(kind: TunnelKind): void { const child = this.processes.get(kind); if (!child || child.exitCode !== null) throw new AppError("TUNNEL_NOT_RUNNING", `${kind} is not managed by this process`, 404); child.kill("SIGTERM"); }
   installPlan(kind: TunnelKind): Record<string, unknown> { return kind === "cloudflared" ? { source: "https://github.com/cloudflare/cloudflared/releases/latest", commands: process.platform === "win32" ? ["winget install --id Cloudflare.cloudflared"] : ["Install the official cloudflared package for your distribution"] } : { source: "https://github.com/fatedier/frp/releases/latest", commands: ["Download the matching official frp archive, verify its checksum, and place frpc on PATH"] }; }
-  async install(kind: TunnelKind, confirmed: boolean): Promise<Record<string, unknown>> {
+  async install(kind: TunnelKind, confirmed: boolean): Promise<TunnelInstallResult> {
     if (!confirmed) throw new AppError("CONFIRMATION_REQUIRED", "installation requires explicit confirmation");
     const repo = kind === "cloudflared" ? "cloudflare/cloudflared" : "fatedier/frp";
     const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { accept: "application/vnd.github+json", "user-agent": "secure-host-mcp" } });

@@ -7,6 +7,7 @@
   "execution": { "maxTimeoutMs": 120000, "maxOutputBytes": 1048576, "maxJobs": 8, "jobTtlMs": 3600000 },
   "audit": { "retentionDays": 30, "maxFileBytes": 26214400 },
   "auth": {},
+  "network": { "hasPublicIp": true, "publicAddress": "203.0.113.10" },
   "tunnels": { "frpcConfig": "/etc/frp/frpc.toml", "proxyUrl": "socks5://127.0.0.1:1080" },
   "legacySse": false,
   "adminMode": false
