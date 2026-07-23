@@ -129,6 +129,10 @@ Standalone release builds use `npm run package:standalone`. Cross-platform artif
 
 ## Publishing a release
 
-`package.json` is the version source. After updating it and merging the change, push the exact matching tag (for example, `v0.1.0`). GitHub Actions tests and packages both platforms, creates checksums and generated release notes, publishes the GitHub Release, and publishes the same version to npm. Prerelease versions use npm's `next` dist-tag; stable versions use `latest`.
+Use Conventional Commit prefixes such as `fix:`, `feat:`, and `feat!:` when merging product changes into `main`. Release Please automatically creates or updates a Release PR containing the next `package.json`/lockfile version and `CHANGELOG.md`. While the project is below `1.0.0`, both `fix:` and `feat:` produce patch releases; breaking changes retain their normal SemVer meaning.
+
+Merging the Release PR creates the matching `v<version>` tag and GitHub Release. The release workflow then tests and packages both platforms, creates checksums, uploads the Windows/Linux assets to that Release, and publishes the same version to npm. The Release PR is never merged automatically, so publication retains an explicit review gate.
+
+Explicit matching tags and guarded manual workflow runs remain available for recovery and prereleases. Prerelease versions use npm's `next` dist-tag; stable versions use `latest`.
 
 The npm job uses Trusted Publishing with GitHub OIDC and does not require a long-lived npm token in repository secrets. A manual workflow run defaults to validation only and will not publish unless explicitly enabled.

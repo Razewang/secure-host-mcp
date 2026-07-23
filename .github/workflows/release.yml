@@ -5,6 +5,21 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_call:
+    inputs:
+      version:
+        description: "Exact package version to build (without v)"
+        required: true
+        type: string
+      publish:
+        description: "Publish GitHub Release assets and npm package"
+        required: true
+        type: boolean
+      prerelease:
+        description: "Mark the publication as a prerelease"
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       version:
@@ -48,6 +63,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
           REQUESTED_VERSION: ${{ inputs.version }}
           REQUESTED_PUBLISH: ${{ inputs.publish }}
           REQUESTED_PRERELEASE: ${{ inputs.prerelease }}
@@ -59,19 +75,19 @@ jobs:
           const { execFileSync } = require("node:child_process");
           const pkg = JSON.parse(readFileSync("package.json", "utf8"));
           const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-          const tagRun = process.env.EVENT_NAME === "push";
-          const manualRun = process.env.EVENT_NAME === "workflow_dispatch";
-          const version = tagRun ? process.env.REF_NAME.slice(1) : manualRun ? process.env.REQUESTED_VERSION : pkg.version;
+          const tagRun = process.env.EVENT_NAME === "push" && process.env.REF_TYPE === "tag";
+          const requestedRun = Boolean(process.env.REQUESTED_VERSION);
+          const version = tagRun ? process.env.REF_NAME.slice(1) : requestedRun ? process.env.REQUESTED_VERSION : pkg.version;
           if (!semver.test(version)) throw new Error(`Invalid semantic version: ${version}`);
           if (version !== pkg.version) throw new Error(`Release ${version} does not match package.json ${pkg.version}`);
           const tag = `v${version}`;
           if (tagRun && process.env.REF_NAME !== tag) throw new Error(`Tag must be exactly ${tag}`);
-          const publish = tagRun || (manualRun && process.env.REQUESTED_PUBLISH === "true");
-          const prerelease = tagRun || !manualRun ? version.includes("-") : process.env.REQUESTED_PRERELEASE === "true";
-          if (manualRun && publish && !prerelease) {
+          const publish = tagRun || (requestedRun && process.env.REQUESTED_PUBLISH === "true");
+          const prerelease = tagRun || !requestedRun ? version.includes("-") : process.env.REQUESTED_PRERELEASE === "true";
+          if (requestedRun && publish && !prerelease) {
             let tagSha;
             try { tagSha = execFileSync("git", ["rev-list", "-n", "1", tag], { encoding: "utf8" }).trim(); }
-            catch { throw new Error(`Stable manual publication requires existing tag ${tag}`); }
+            catch { throw new Error(`Stable publication requires existing tag ${tag}`); }
             if (tagSha !== process.env.SOURCE_SHA) throw new Error(`${tag} does not identify workflow commit ${process.env.SOURCE_SHA}`);
           }
           const output = process.env.GITHUB_OUTPUT;
@@ -191,7 +207,8 @@ jobs:
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             tag_sha="$(git rev-list -n 1 "$TAG")"
             if [ "$tag_sha" != "$SOURCE_SHA" ]; then echo "Existing $TAG does not identify $SOURCE_SHA." >&2; exit 1; fi
-            echo "Release $TAG already exists at the expected commit; leaving it unchanged."
+            gh release upload "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --clobber
+            echo "Uploaded release assets to existing $TAG."
             exit 0
           fi
           args=(release create "$TAG" assets/* --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --generate-notes --title "$TAG")
