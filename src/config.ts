@@ -5,8 +5,19 @@ import path from "node:path";
 import { z } from "zod";
 import { ALL_SCOPES, AppError, type Scope } from "./types.js";
 
+const NonEmptyTokenSchema = z.string().refine((value) => value.trim().length > 0, "token must not be empty");
 const TokenRecordSchema = z.object({
   id: z.string(), label: z.string(), salt: z.string(), hash: z.string(), scopes: z.array(z.enum(ALL_SCOPES)), createdAt: z.string()
+});
+const ConfiguredTokenSchema = z.object({
+  token: NonEmptyTokenSchema,
+  label: z.string().max(120).default("Configured agent token"),
+  scopes: z.array(z.enum(ALL_SCOPES)).default([...ALL_SCOPES])
+});
+const TokenConfigSchema = z.object({
+  version: z.literal(1).default(1),
+  adminToken: NonEmptyTokenSchema,
+  connectionTokens: z.array(ConfiguredTokenSchema).default([])
 });
 
 const ConfigSchema = z.object({
@@ -19,6 +30,7 @@ const ConfigSchema = z.object({
   audit: z.object({ retentionDays: z.number().int().positive().default(30), maxFileBytes: z.number().int().positive().default(25 * 1024 * 1024) }),
   auth: z.object({ externalIssuer: z.string().url().optional(), externalAudience: z.string().optional() }).default({}),
   tunnels: z.object({ cloudflaredConfig: z.string().optional(), frpcConfig: z.string().optional(), proxyUrl: z.string().optional() }).default({}),
+  network: z.object({ hasPublicIp: z.boolean().optional(), publicAddress: z.string().optional() }).default({}),
   legacySse: z.boolean().default(false),
   adminMode: z.boolean().default(false)
 });
@@ -32,6 +44,7 @@ const SecretsSchema = z.object({
 export type AppConfig = z.infer<typeof ConfigSchema>;
 export type Secrets = z.infer<typeof SecretsSchema>;
 export type TokenRecord = z.infer<typeof TokenRecordSchema>;
+export type TokenConfig = z.infer<typeof TokenConfigSchema>;
 
 export function defaultDataDir(): string {
   return process.env.SECURE_HOST_MCP_HOME ?? path.join(os.homedir(), ".secure-host-mcp");
@@ -48,9 +61,11 @@ async function atomicWrite(file: string, value: unknown, secret = false): Promis
 export class ConfigStore {
   readonly configPath: string;
   readonly secretsPath: string;
+  readonly tokensPath: string;
   constructor(readonly dataDir = defaultDataDir()) {
     this.configPath = path.join(dataDir, "config.json");
     this.secretsPath = path.join(dataDir, "secrets.json");
+    this.tokensPath = path.join(dataDir, "tokens.json");
   }
 
   async loadConfig(): Promise<AppConfig> {
@@ -74,6 +89,30 @@ export class ConfigStore {
   }
 
   async saveSecrets(secrets: Secrets): Promise<void> { await atomicWrite(this.secretsPath, SecretsSchema.parse(secrets), true); }
+
+  async loadTokenConfig(): Promise<TokenConfig | undefined> {
+    try {
+      if (process.platform !== "win32" && ((await stat(this.tokensPath)).mode & 0o077) !== 0) throw new AppError("INSECURE_TOKENS", "tokens.json must use mode 0600", 500);
+      return TokenConfigSchema.parse(JSON.parse(await readFile(this.tokensPath, "utf8")));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      return undefined;
+    }
+  }
+
+  async saveTokenConfig(config: TokenConfig): Promise<void> { await atomicWrite(this.tokensPath, TokenConfigSchema.parse(config), true); }
+
+  async hasOwnerToken(): Promise<boolean> {
+    if (await this.loadTokenConfig()) return true;
+    return (await this.loadSecrets()).tokens.some((token) => token.id === "owner");
+  }
+
+  async ensureConfiguredAdminToken(requestedToken?: string): Promise<string | undefined> {
+    if (await this.hasOwnerToken()) return undefined;
+    const token = requestedToken ?? randomBytes(32).toString("base64url");
+    await this.saveTokenConfig({ version: 1, adminToken: token, connectionTokens: [] });
+    return token;
+  }
 
   async ensureOwnerToken(): Promise<string | undefined> {
     const secrets = await this.loadSecrets();

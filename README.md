@@ -15,13 +15,13 @@
   English | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-Secure Host MCP exposes a Windows or Linux host terminal to remote MCP clients through Streamable HTTP. It is intentionally powerful: the default owner token can execute any command available to the service account, inspect or launch configured tunnels, and request privileged operations.
+Secure Host MCP exposes a Windows or Linux host terminal to remote MCP clients through Streamable HTTP. It is intentionally powerful: the default administrator token can execute any command available to the service account, inspect or launch configured tunnels, and request privileged operations.
 
 ## Download a standalone release
 
 Download the archive for your platform from [GitHub Releases](https://github.com/Razewang/secure-host-mcp/releases/latest):
 
-- Windows x64: extract the ZIP and double-click `secure-host-mcp.exe`. On first launch it creates the configuration, displays the owner token once, and starts the MCP and administration servers in a console window.
+- Windows x64: extract the ZIP and double-click `secure-host-mcp.exe`. On first launch the console wizard asks about public-IP and Cloudflare Tunnel access, configures the administrator token, displays the connection URLs, and starts both servers.
 - Linux x64: extract the `tar.gz` archive and run `./secure-host-mcp launch` for the same first-run initialization and startup behavior.
 
 No separate Node.js installation is required for these archives. The Windows executable is not code-signed yet, so Microsoft Defender SmartScreen may display an unknown-publisher warning. Verify the download against `SHA256SUMS.txt` before running it.
@@ -47,7 +47,15 @@ secure-host-mcp doctor
 secure-host-mcp start
 ```
 
-`setup` prints the owner token once. Store it securely. It is used for direct Bearer authentication, the OAuth approval page, and the administration UI. New installations listen on all network interfaces by default so remote clients can connect when the host firewall, router, and cloud security rules permit it.
+When run in an interactive terminal for a new installation, `setup`:
+
+1. Asks whether the device has a directly reachable public IP and detects it through Cloudflare's trace endpoint when possible.
+2. Inspects `cloudflared` and offers to install the checksum-verified official binary when it is missing. Installing the binary does not create a Cloudflare account or tunnel configuration.
+3. Lets you automatically generate the initial token or enter any non-empty token of your choice. There is no fixed token format; letters, numbers, and combinations are accepted.
+4. Explains that the same initial token is both the web-console administrator token and a full-access MCP Bearer token.
+5. Prints concrete public-IP MCP and web-console URLs when a public IP is available, plus a plaintext HTTP warning.
+
+Non-interactive setup keeps automation compatibility: it generates the token without prompting and does not install Cloudflare automatically. New installations listen on all network interfaces by default so remote clients can connect when the host firewall, router, and cloud security rules permit it.
 
 Endpoints default to:
 
@@ -56,9 +64,19 @@ Endpoints default to:
 
 `0.0.0.0` is a bind address, not a client URL. Connect with the server's IP address or DNS name. Both services start even when HTTPS is not configured, but authentication does not encrypt bearer tokens, OAuth codes, or administration traffic. ChatGPT requires a remotely reachable HTTPS MCP URL. Put Caddy, Nginx, Cloudflare Tunnel, frp, or another trusted reverse proxy in front of port 8767, and protect remote administration on port 8768 with HTTPS or a trusted private network. A minimal Caddy example is under `examples/`.
 
+The administration URL serves a responsive dashboard after the administrator token is entered. It shows host resources and runtime configuration, lists and creates scoped connection tokens, and controls configured frpc/cloudflared processes. Tokens declared in `tokens.json` are shown as file-managed and cannot be deleted from the dashboard.
+
+For example, when setup detects `203.0.113.10`, it prints:
+
+```text
+Public MCP URL: http://203.0.113.10:8767/mcp
+Web console URL: http://203.0.113.10:8768/
+WARNING: HTTP is plaintext...
+```
+
 ## ChatGPT OAuth connection
 
-Use `https://mcp.example.com/mcp` as the server URL and choose OAuth. The server publishes its authorization and protected-resource metadata. A new client dynamically registers, ChatGPT opens the authorization page, and the host owner enters the owner token and approves the requested scopes. The server uses authorization code + PKCE and issues rotating refresh tokens with offline access.
+Use `https://mcp.example.com/mcp` as the server URL and choose OAuth. The server publishes its authorization and protected-resource metadata. A new client dynamically registers, ChatGPT opens the authorization page, and the host owner enters the administrator token and approves the requested scopes. The server uses authorization code + PKCE and issues rotating refresh tokens with offline access.
 
 Full write-capable MCP support in ChatGPT depends on the account/workspace plan and current Developer Mode availability.
 
@@ -99,8 +117,8 @@ The helper listens only on `127.0.0.1:8769`, authenticates with a random key fro
 
 ## Security choices
 
-- The generated owner token has all scopes. Additional scoped tokens can be added to the restricted secrets store.
-- Secrets live in `~/.secure-host-mcp/secrets.json`; POSIX permissions must be `0600`. Back up and protect this file.
+- The configured administrator token has all scopes and is accepted by the web console, OAuth approval page, and direct MCP Bearer authentication.
+- User-managed tokens live in `~/.secure-host-mcp/tokens.json`; internal hashed tokens, OAuth grants, and helper secrets live in `secrets.json`. Both secret files must use mode `0600` on POSIX. Back them up and protect them.
 - Audit logs intentionally contain complete commands and stdout/stderr in plaintext. They rotate by size/day and are retained for 30 days under the data directory.
 - MCP and administration listen on all interfaces by default. Every administration API request requires the owner bearer token, and mutations also require the page CSRF token.
 - Public HTTP is not encrypted: authentication controls access but cannot prevent interception of bearer tokens, OAuth codes, or administration traffic. Prefer HTTPS or a trusted VPN.
@@ -109,6 +127,24 @@ The helper listens only on `127.0.0.1:8769`, authenticates with a random key fro
 ## Configuration
 
 Set `SECURE_HOST_MCP_HOME` to change the data directory. Copy fields from `config.example.json` into the generated `config.json`, then restart. Configuration and secrets are written atomically.
+
+The generated `tokens.json` is intentionally editable:
+
+```json
+{
+  "version": 1,
+  "adminToken": "my-admin-token",
+  "connectionTokens": [
+    {
+      "token": "agent-2-token",
+      "label": "Second agent",
+      "scopes": ["system.read", "command.run"]
+    }
+  ]
+}
+```
+
+Change `adminToken` to rotate the administrator token, or append entries to `connectionTokens` to create more direct MCP Bearer tokens. Token values have no pattern requirement but must be non-empty. Scopes must come from `system.read`, `command.run`, `command.elevate`, `tunnel.read`, `tunnel.manage`, and `admin.manage`. Restart Secure Host MCP after editing. If `tokens.json` exists, its `adminToken` supersedes a legacy hashed owner token. See `tokens.example.json` for a full-access example.
 
 For a loopback-only deployment, explicitly set both `mcp.host` and `admin.host` to `127.0.0.1`. Existing configuration files are preserved during upgrades and are not silently changed to public listeners. The legacy `setup --allow-lan-http` option remains accepted for compatibility; remote administration is already enabled for new installations.
 

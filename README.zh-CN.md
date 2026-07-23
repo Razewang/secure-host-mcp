@@ -15,13 +15,13 @@
   <a href="README.md">English</a> | 简体中文
 </p>
 
-Secure Host MCP 通过 Streamable HTTP 将 Windows 或 Linux 主机终端开放给远程 MCP 客户端。它有意提供接近本机终端的强大能力：默认所有者令牌可以执行服务账户有权运行的任何命令、检查或启动已配置的隧道，以及请求提权操作。
+Secure Host MCP 通过 Streamable HTTP 将 Windows 或 Linux 主机终端开放给远程 MCP 客户端。它有意提供接近本机终端的强大能力：默认管理员令牌可以执行服务账户有权运行的任何命令、检查或启动已配置的隧道，以及请求提权操作。
 
 ## 下载独立发行包
 
 从 [GitHub Releases](https://github.com/Razewang/secure-host-mcp/releases/latest) 下载对应平台的压缩包：
 
-- Windows x64：解压 ZIP 后双击 `secure-host-mcp.exe`。首次运行会创建配置、显示一次所有者令牌，并在控制台窗口中启动 MCP 与管理服务。
+- Windows x64：解压 ZIP 后双击 `secure-host-mcp.exe`。首次运行时，控制台向导会询问公网 IP 与 Cloudflare Tunnel、配置管理员令牌、显示连接地址，然后启动 MCP 与管理服务。
 - Linux x64：解压 `tar.gz` 后运行 `./secure-host-mcp launch`，完成相同的首次初始化与启动流程。
 
 这些压缩包不需要另外安装 Node.js。Windows EXE 暂未进行代码签名，因此 Microsoft Defender SmartScreen 可能显示“未知发布者”警告。运行前请使用 `SHA256SUMS.txt` 校验下载文件。
@@ -47,7 +47,15 @@ secure-host-mcp doctor
 secure-host-mcp start
 ```
 
-`setup` 只会显示一次所有者令牌，请妥善保存。该令牌可用于直接 Bearer 鉴权、OAuth 授权确认页面以及管理界面。新安装默认监听全部网络接口，只要主机防火墙、路由器和云安全组允许，远程客户端即可连接。
+在交互式终端中进行全新安装时，`setup` 会：
+
+1. 询问设备是否拥有可直接访问的公网 IP，并尽可能通过 Cloudflare trace 接口自动检测。
+2. 检查 `cloudflared`；未安装时询问是否下载经过官方 SHA-256 摘要校验的版本。这里只安装程序，不会代替用户创建 Cloudflare 账户或隧道配置。
+3. 让用户选择自动生成初始令牌，或者手动输入任意非空令牌。令牌没有固定格式，纯数字、纯字母或混合形式均可。
+4. 明确提示：这个初始令牌同时是网页控制台管理员令牌，也是拥有完整权限的 MCP Bearer 连接 Token。
+5. 检测到公网 IP 后，自动显示由该 IP 组成的 MCP 地址、网页控制台地址以及 HTTP 明文传输警告。
+
+非交互式安装仍兼容自动化脚本：它会自动生成令牌，但不会自动安装 Cloudflare。新安装默认监听全部网络接口，只要主机防火墙、路由器和云安全组允许，远程客户端即可连接。
 
 默认端点：
 
@@ -56,9 +64,19 @@ secure-host-mcp start
 
 `0.0.0.0` 是监听地址，不是客户端应填写的连接地址；客户端应使用服务器 IP 或域名。即使尚未配置 HTTPS，两个服务仍会启动，但鉴权并不能加密 Bearer 令牌、OAuth 授权码或管理流量。ChatGPT 要求 MCP 地址能够通过公网 HTTPS 访问。请在 8767 端口前部署 Caddy、Nginx、Cloudflare Tunnel、frp 或其他可信反向代理，并使用 HTTPS 或可信私有网络保护 8768 端口的远程管理。`examples/` 中提供了一个最小 Caddy 配置示例。
 
+访问管理地址并输入管理员令牌后，会打开响应式管理面板。它可以查看主机资源和运行配置、列出并创建带权限范围的连接 Token，以及控制已配置的 frpc/cloudflared 进程。通过 `tokens.json` 声明的令牌会标记为“配置文件管理”，不能从面板中删除。
+
+例如检测到 `203.0.113.10` 时，向导会显示：
+
+```text
+Public MCP URL: http://203.0.113.10:8767/mcp
+Web console URL: http://203.0.113.10:8768/
+WARNING: HTTP is plaintext...
+```
+
 ## 连接 ChatGPT OAuth
 
-将 `https://mcp.example.com/mcp` 填为服务器地址并选择 OAuth。服务器会发布授权服务器和受保护资源元数据。新客户端可以动态注册；随后 ChatGPT 打开授权页面，由主机所有者输入所有者令牌并批准所需权限范围。服务器使用授权码加 PKCE 流程，并签发支持离线访问的轮换刷新令牌。
+将 `https://mcp.example.com/mcp` 填为服务器地址并选择 OAuth。服务器会发布授权服务器和受保护资源元数据。新客户端可以动态注册；随后 ChatGPT 打开授权页面，由主机所有者输入管理员令牌并批准所需权限范围。服务器使用授权码加 PKCE 流程，并签发支持离线访问的轮换刷新令牌。
 
 ChatGPT 中完整的可写 MCP 支持取决于账户或工作区方案，以及当前 Developer Mode 的开放情况。
 
@@ -99,8 +117,8 @@ sudo secure-host-mcp helper
 
 ## 安全设计
 
-- 自动生成的所有者令牌拥有全部权限范围；可以在受限的密钥存储中添加其他细粒度令牌。
-- 密钥保存在 `~/.secure-host-mcp/secrets.json`；POSIX 系统要求权限为 `0600`。请备份并保护此文件。
+- 管理员令牌拥有全部权限，可用于网页控制台、OAuth 授权确认页面以及直接 MCP Bearer 鉴权。
+- 用户维护的令牌保存在 `~/.secure-host-mcp/tokens.json`；内部哈希令牌、OAuth 授权和辅助进程密钥保存在 `secrets.json`。POSIX 系统要求这两个密钥文件的权限均为 `0600`，请妥善备份和保护。
 - 审计日志会有意以明文记录完整命令及 stdout/stderr。日志按日期和大小轮换，并在数据目录中保留 30 天。
 - MCP 与管理端默认监听全部网络接口。每个管理 API 请求都必须携带所有者 Bearer 令牌，写操作还必须携带页面 CSRF 令牌。
 - 公网 HTTP 不提供加密：鉴权可以控制访问权限，但无法阻止 Bearer 令牌、OAuth 授权码或管理流量被网络窃听。应优先使用 HTTPS 或可信 VPN。
@@ -109,6 +127,24 @@ sudo secure-host-mcp helper
 ## 配置
 
 设置 `SECURE_HOST_MCP_HOME` 可以更改数据目录。将 `config.example.json` 中需要的字段复制到自动生成的 `config.json`，然后重启服务。配置与密钥均采用原子写入。
+
+自动生成的 `tokens.json` 可以直接编辑：
+
+```json
+{
+  "version": 1,
+  "adminToken": "my-admin-token",
+  "connectionTokens": [
+    {
+      "token": "agent-2-token",
+      "label": "Second agent",
+      "scopes": ["system.read", "command.run"]
+    }
+  ]
+}
+```
+
+修改 `adminToken` 即可轮换管理员令牌；向 `connectionTokens` 添加项目即可创建更多 MCP Bearer 连接 Token。Token 没有格式限制，但不能为空。权限范围只能取自 `system.read`、`command.run`、`command.elevate`、`tunnel.read`、`tunnel.manage` 和 `admin.manage`。编辑后需要重启 Secure Host MCP。只要 `tokens.json` 存在，其中的 `adminToken` 就会取代旧版哈希所有者令牌。完整权限示例见 `tokens.example.json`。
 
 如需仅本机访问，请在配置中明确将 `mcp.host` 和 `admin.host` 都设置为 `127.0.0.1`。升级时会保留已有配置，不会悄悄把旧安装改为公网监听。为兼容旧脚本，仍接受 `setup --allow-lan-http` 参数；新安装已经默认允许远程管理。
 

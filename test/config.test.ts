@@ -26,4 +26,12 @@ describe("ConfigStore", () => {
     expect(await readFile(store.secretsPath, "utf8")).not.toContain(token!);
     if (process.platform !== "win32") expect((await stat(store.secretsPath)).mode & 0o777).toBe(0o600);
   });
+
+  it("creates an editable restricted token configuration for new installations", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
+    expect(await store.ensureConfiguredAdminToken("admin123")).toBe("admin123");
+    expect(await store.ensureConfiguredAdminToken("replacement")).toBeUndefined();
+    expect(await store.loadTokenConfig()).toEqual({ version: 1, adminToken: "admin123", connectionTokens: [] });
+    if (process.platform !== "win32") expect((await stat(store.tokensPath)).mode & 0o777).toBe(0o600);
+  });
 });

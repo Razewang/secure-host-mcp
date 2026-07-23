@@ -23,4 +23,30 @@ describe("AuthService", () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const auth = new AuthService(await store.loadConfig(), store); await auth.initialize();
     await expect(auth.registerClient({ redirect_uris: ["http://evil.example/callback"] })).rejects.toThrow("valid redirect_uris");
   });
+
+  it("loads administrator and additional connection tokens from tokens.json", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
+    await store.saveTokenConfig({
+      version: 1,
+      adminToken: "123456",
+      connectionTokens: [{ token: "agentABC", label: "Local agent", scopes: ["system.read", "command.run"] }]
+    });
+    const config = await store.loadConfig(); const auth = new AuthService(config, store); await auth.initialize();
+    expect(auth.requireOwner("123456")).toBe(true);
+    expect((await auth.authenticate("123456")).scopes).toContain("admin.manage");
+    expect((await auth.authenticate("agentABC")).scopes).toEqual(["system.read", "command.run"]);
+    expect(auth.listTokens()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "owner", source: "tokens.json" }),
+      expect.objectContaining({ id: "configured:1", label: "Local agent", source: "tokens.json" })
+    ]));
+  });
+
+  it("uses tokens.json as the authoritative administrator token after restart", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
+    const legacyOwner = await store.ensureOwnerToken();
+    await store.saveTokenConfig({ version: 1, adminToken: "replacement", connectionTokens: [] });
+    const auth = new AuthService(await store.loadConfig(), store); await auth.initialize();
+    await expect(auth.authenticate(legacyOwner!)).rejects.toThrow("invalid or expired token");
+    expect(auth.requireOwner("replacement")).toBe(true);
+  });
 });

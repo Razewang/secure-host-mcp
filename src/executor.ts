@@ -61,7 +61,25 @@ export class CommandExecutor {
   private requireJob(id: string): Job { const job = this.jobs.get(id); if (!job) throw new AppError("JOB_NOT_FOUND", `unknown job: ${id}`, 404); return job; }
   private killProcess(child: ChildProcessWithoutNullStreams): void { try { if (process.platform === "win32") spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }); else if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { child.kill("SIGKILL"); } }
   private cleanup(): void { const now = Date.now(); for (const [id, job] of this.jobs) if (job.expiresAt < now && job.status !== "running") this.jobs.delete(id); }
-  systemInfo(): Record<string, unknown> { return { platform: process.platform, arch: process.arch, hostname: os.hostname(), release: os.release(), node: process.version, uid: process.getuid?.(), elevated: isProcessElevated(), configuredAdminMode: this.config.adminMode }; }
+  systemInfo(): Record<string, unknown> {
+    const cpus = os.cpus();
+    return {
+      platform: process.platform,
+      arch: process.arch,
+      hostname: os.hostname(),
+      release: os.release(),
+      uptime: os.uptime(),
+      cpus: cpus.length,
+      cpuModel: cpus[0]?.model,
+      totalMemory: os.totalmem(),
+      freeMemory: os.freemem(),
+      node: process.version,
+      nodeVersion: process.version,
+      uid: process.getuid?.(),
+      elevated: isProcessElevated(),
+      configuredAdminMode: this.config.adminMode
+    };
+  }
 }
 
 export function isProcessElevated(): boolean {

@@ -1,0 +1,1277 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secure Host MCP</title>
+<style>
+:root {
+  --seed-bg: #f5f5f7;
+  --seed-fg: #1d1d1f;
+  --seed-primary: #0071e3;
+  --seed-accent: #0071e3;
+  --seed-surface: #ffffff;
+  --seed-radius: 14px;
+  --seed-spacing: 1;
+
+  --bg: var(--seed-bg);
+  --fg: var(--seed-fg);
+  --primary: var(--seed-primary);
+  --accent: var(--seed-accent);
+  --surface: var(--seed-surface);
+  --radius: var(--seed-radius);
+  --radius-sm: calc(var(--seed-radius) * 0.57);
+  --radius-lg: calc(var(--seed-radius) * 1.28);
+
+  --muted: #6e6e73;
+  --border: #d2d2d7;
+  --border-strong: #86868b;
+  --success: #34c759;
+  --danger: #ff3b30;
+  --warning: #ff9500;
+  --shadow: 0 2px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+  --sidebar-w: 240px;
+  --header-h: 56px;
+  --sp-unit: calc(8px * var(--seed-spacing));
+}
+
+[data-theme="dark"] {
+  --seed-bg: #000000;
+  --seed-fg: #f5f5f7;
+  --seed-surface: #1c1c1e;
+  --muted: #98989d;
+  --border: rgba(255,255,255,0.12);
+  --border-strong: rgba(255,255,255,0.2);
+  --shadow: 0 2px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Icons", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+/* Auth Gate */
+.auth-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: calc(var(--sp-unit) * 3);
+}
+
+.auth-card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: calc(var(--sp-unit) * 6) calc(var(--sp-unit) * 5);
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.auth-card .logo {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto calc(var(--sp-unit) * 3);
+  background: var(--primary);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-card .logo svg { width: 28px; height: 28px; }
+
+.auth-card h1 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: calc(var(--sp-unit) * 1);
+}
+
+.auth-card p {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: calc(var(--sp-unit) * 4);
+}
+
+.auth-card input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--fg);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  margin-bottom: calc(var(--sp-unit) * 2);
+}
+
+.auth-card input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.auth-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-bottom: calc(var(--sp-unit) * 2);
+  min-height: 20px;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 980px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.btn:active { transform: scale(0.97); }
+
+.btn-primary {
+  background: var(--primary);
+  color: #ffffff;
+  width: 100%;
+}
+
+.btn-primary:hover { filter: brightness(1.1); }
+
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+.btn-danger {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.btn-danger:hover { background: color-mix(in srgb, var(--danger) 20%, transparent); }
+
+.btn-success {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}
+
+.btn-success:hover { background: color-mix(in srgb, var(--success) 20%, transparent); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); }
+
+/* App Layout */
+.app { display: none; min-height: 100vh; }
+.app.active { display: grid; grid-template-columns: var(--sidebar-w) 1fr; grid-template-rows: var(--header-h) 1fr; }
+
+/* Header */
+.header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 calc(var(--sp-unit) * 3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: var(--header-h);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--sp-unit) * 1.5);
+}
+
+.header-left .app-icon {
+  width: 32px;
+  height: 32px;
+  background: var(--primary);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-left .app-icon svg { width: 18px; height: 18px; }
+
+.header-left h1 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--sp-unit) * 2);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.theme-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  color: var(--fg);
+}
+
+.theme-toggle:hover { background: var(--bg); }
+
+.disconnect-btn {
+  font-size: 13px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  transition: color 0.2s, background 0.2s;
+}
+
+.disconnect-btn:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+
+/* Sidebar */
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: calc(var(--sp-unit) * 2) calc(var(--sp-unit) * 1.5);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+}
+
+.nav-item:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); color: var(--fg); }
+
+.nav-item.active {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+}
+
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+.nav-badge {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  padding: 2px 7px;
+  border-radius: 10px;
+  letter-spacing: 0.02em;
+}
+
+/* Main Content */
+.main {
+  padding: calc(var(--sp-unit) * 4);
+  overflow-y: auto;
+  max-height: calc(100vh - var(--header-h));
+}
+
+.section { display: none; }
+.section.active { display: block; }
+
+.section-title {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: calc(var(--sp-unit) * 1);
+}
+
+.section-desc {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: calc(var(--sp-unit) * 4);
+}
+
+/* Cards Grid */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: calc(var(--sp-unit) * 2);
+  margin-bottom: calc(var(--sp-unit) * 4);
+}
+
+.stat-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: calc(var(--sp-unit) * 3);
+  box-shadow: var(--shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+
+.stat-card .label {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: calc(var(--sp-unit) * 1);
+}
+
+.stat-card .value {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  word-break: break-all;
+}
+
+.stat-card .sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* Panel */
+.panel {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  margin-bottom: calc(var(--sp-unit) * 3);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(var(--sp-unit) * 2.5) calc(var(--sp-unit) * 3);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.panel-body { padding: calc(var(--sp-unit) * 3); }
+
+/* Token List */
+.token-list { list-style: none; }
+
+.token-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(var(--sp-unit) * 2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.token-item:last-child { border-bottom: none; }
+
+.token-info { flex: 1; min-width: 0; }
+
+.token-label {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.token-meta {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.token-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.token-managed {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.scope-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  color: var(--primary);
+  letter-spacing: 0.02em;
+}
+
+/* Create Token Form */
+.create-form {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--sp-unit) * 2);
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.form-group input[type="text"] {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--fg);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-group input[type="text"]:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+.scopes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.scope-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.scope-checkbox:hover { border-color: var(--primary); }
+
+.scope-checkbox.checked {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
+
+.scope-checkbox input { display: none; }
+
+.scope-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.scope-checkbox.checked .scope-check {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.scope-checkbox.checked .scope-check svg { opacity: 1; }
+.scope-check svg { width: 10px; height: 10px; opacity: 0; transition: opacity 0.15s; }
+
+/* Tunnel Cards */
+.tunnel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: calc(var(--sp-unit) * 2);
+}
+
+.tunnel-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: calc(var(--sp-unit) * 3);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--sp-unit) * 2);
+}
+
+.tunnel-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tunnel-name {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tunnel-name svg { width: 20px; height: 20px; color: var(--muted); }
+
+.tunnel-status {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 10px;
+  letter-spacing: 0.02em;
+}
+
+.tunnel-status.running {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}
+
+.tunnel-status.stopped {
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  color: var(--muted);
+}
+
+.tunnel-desc {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.tunnel-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+/* Config Display */
+.config-block {
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: calc(var(--sp-unit) * 2);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--fg);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Toast */
+.toast-container {
+  position: fixed;
+  top: calc(var(--header-h) + 16px);
+  right: 16px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  padding: 12px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: slideIn 0.3s ease;
+  border-left: 3px solid var(--primary);
+  max-width: 320px;
+}
+
+.toast.success { border-left-color: var(--success); }
+.toast.error { border-left-color: var(--danger); }
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Loading */
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: calc(var(--sp-unit) * 6);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: calc(var(--sp-unit) * 6);
+  color: var(--muted);
+}
+
+.empty-state svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.4; }
+.empty-state p { font-size: 14px; }
+
+/* Confirm Dialog */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.dialog {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: calc(var(--sp-unit) * 4);
+  max-width: 360px;
+  width: 90%;
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.dialog h4 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+.dialog p { font-size: 14px; color: var(--muted); margin-bottom: calc(var(--sp-unit) * 3); }
+
+.dialog-actions { display: flex; gap: 10px; }
+.dialog-actions .btn { flex: 1; }
+
+/* Mobile Nav */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 8px 0 env(safe-area-inset-bottom, 8px);
+  z-index: 100;
+}
+
+.mobile-nav-inner {
+  display: flex;
+  justify-content: space-around;
+}
+
+.mobile-nav button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  font-size: 10px;
+  font-family: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 12px;
+  font-weight: 500;
+}
+
+.mobile-nav button.active { color: var(--primary); }
+.mobile-nav button svg { width: 22px; height: 22px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app.active { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
+  .mobile-nav { display: block; }
+  .main { padding: calc(var(--sp-unit) * 2.5); padding-bottom: 80px; max-height: none; }
+  .cards-grid { grid-template-columns: repeat(2, 1fr); }
+  .tunnel-grid { grid-template-columns: 1fr; }
+  .section-title { font-size: 22px; }
+}
+
+@media (max-width: 480px) {
+  .cards-grid { grid-template-columns: 1fr; }
+}
+
+/* Security Notice */
+.security-notice {
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: calc(var(--sp-unit) * 3);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.security-notice svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--warning); margin-top: 1px; }
+
+/* New Token Result */
+.new-token-result {
+  background: color-mix(in srgb, var(--success) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 25%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  margin-top: calc(var(--sp-unit) * 2);
+}
+
+.new-token-result .label { font-size: 12px; font-weight: 600; color: var(--success); margin-bottom: 6px; }
+
+.new-token-result code {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 12px;
+  word-break: break-all;
+  display: block;
+  background: var(--bg);
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+</style>
+</head>
+<body>
+<div class="toast-container" id="toasts"></div>
+
+<!-- Auth Gate -->
+<div class="auth-gate" id="authGate">
+  <div class="auth-card">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </div>
+    <h1>Secure Host MCP</h1>
+    <p>输入管理员令牌以访问控制面板</p>
+    <div class="security-notice">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+      <span>请确保通过 HTTPS 或受信网络访问。HTTP 明文传输无法防止令牌被截获。</span>
+    </div>
+    <input type="password" id="tokenInput" placeholder="管理员令牌" autocomplete="current-password">
+    <div class="auth-error" id="authError"></div>
+    <button class="btn btn-primary" id="connectBtn" onclick="connect()">连接</button>
+  </div>
+</div>
+
+<!-- App -->
+<div class="app" id="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="app-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+      <h1>Secure Host MCP</h1>
+    </div>
+    <div class="header-right">
+      <div class="status-dot" title="已连接"></div>
+      <button class="theme-toggle" onclick="toggleTheme()" title="切换外观">
+        <svg id="themeIcon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      </button>
+      <button class="disconnect-btn" onclick="disconnect()">断开连接</button>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <button class="nav-item active" data-section="overview" onclick="switchSection('overview')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      概览
+    </button>
+    <button class="nav-item" data-section="tokens" onclick="switchSection('tokens')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+      令牌
+      <span class="nav-badge" id="tokenCount">0</span>
+    </button>
+    <button class="nav-item" data-section="tunnels" onclick="switchSection('tunnels')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      隧道
+    </button>
+    <button class="nav-item" data-section="config" onclick="switchSection('config')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      配置
+    </button>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <!-- Overview -->
+    <section class="section active" id="sec-overview">
+      <h2 class="section-title">系统概览</h2>
+      <p class="section-desc">服务器运行状态与资源监控</p>
+      <div id="overviewLoading" class="loading-state"><div class="spinner"></div><span>正在加载系统状态…</span></div>
+      <div id="overviewContent" style="display:none">
+        <div class="cards-grid" id="sysCards"></div>
+        <div class="panel">
+          <div class="panel-header"><h3>隧道状态</h3></div>
+          <div class="panel-body" id="tunnelSummary"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tokens -->
+    <section class="section" id="sec-tokens">
+      <h2 class="section-title">令牌管理</h2>
+      <p class="section-desc">创建和管理 API 访问令牌及其权限范围</p>
+
+      <div class="panel">
+        <div class="panel-header"><h3>创建新令牌</h3></div>
+        <div class="panel-body">
+          <div class="create-form">
+            <div class="form-group">
+              <label for="tokenLabel">令牌名称</label>
+              <input type="text" id="tokenLabel" placeholder="例如：CI/CD 部署令牌">
+            </div>
+            <div class="form-group">
+              <label>权限范围</label>
+              <div class="scopes-grid" id="scopesGrid"></div>
+            </div>
+            <button class="btn btn-primary" style="width:auto;align-self:flex-start" onclick="createToken()">创建令牌</button>
+            <div id="newTokenResult"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h3>已有令牌</h3>
+          <button class="btn btn-ghost btn-sm" onclick="loadTokens()">刷新</button>
+        </div>
+        <div class="panel-body">
+          <div id="tokensLoading" class="loading-state"><div class="spinner"></div><span>正在加载令牌列表…</span></div>
+          <ul class="token-list" id="tokenList" style="display:none"></ul>
+          <div class="empty-state" id="tokensEmpty" style="display:none">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            <p>暂无令牌，创建第一个令牌以开始使用</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tunnels -->
+    <section class="section" id="sec-tunnels">
+      <h2 class="section-title">隧道控制</h2>
+      <p class="section-desc">管理 frpc 和 Cloudflare 隧道的启停状态</p>
+      <div class="tunnel-grid" id="tunnelGrid"></div>
+    </section>
+
+    <!-- Config -->
+    <section class="section" id="sec-config">
+      <h2 class="section-title">服务配置</h2>
+      <p class="section-desc">当前 MCP 服务与管理面板的运行配置</p>
+      <div class="panel">
+        <div class="panel-header"><h3>运行配置</h3></div>
+        <div class="panel-body">
+          <div class="config-block" id="configBlock">尚未加载</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Mobile Nav -->
+<div class="mobile-nav">
+  <div class="mobile-nav-inner">
+    <button class="active" data-section="overview" onclick="switchSection('overview')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      概览
+    </button>
+    <button data-section="tokens" onclick="switchSection('tokens')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+      令牌
+    </button>
+    <button data-section="tunnels" onclick="switchSection('tunnels')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      隧道
+    </button>
+    <button data-section="config" onclick="switchSection('config')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      配置
+    </button>
+  </div>
+</div>
+
+<!-- Confirm Dialog -->
+<div class="dialog-overlay" id="dialogOverlay" style="display:none">
+  <div class="dialog">
+    <h4 id="dialogTitle">确认操作</h4>
+    <p id="dialogMsg">确定要执行此操作吗？</p>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" onclick="closeDialog()">取消</button>
+      <button class="btn btn-danger" id="dialogConfirm" onclick="dialogAction()">确认</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* State — in-memory only, no localStorage */
+var adminToken = "";
+var csrfToken = __SECURE_HOST_MCP_CSRF_TOKEN__;
+var statusData = null;
+var tokensData = [];
+var pendingDialogAction = null;
+
+var SCOPES = ["system.read", "command.run", "command.elevate", "tunnel.read", "tunnel.manage", "admin.manage"];
+var SCOPE_LABELS = {
+  "system.read": "系统读取",
+  "command.run": "执行命令",
+  "command.elevate": "提权执行",
+  "tunnel.read": "隧道读取",
+  "tunnel.manage": "隧道管理",
+  "admin.manage": "管理权限"
+};
+
+/* Theme */
+function toggleTheme() {
+  var html = document.documentElement;
+  var isDark = html.getAttribute("data-theme") === "dark";
+  html.setAttribute("data-theme", isDark ? "light" : "dark");
+  var icon = document.getElementById("themeIcon");
+  if (isDark) {
+    icon.innerHTML = '<circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>';
+  } else {
+    icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  }
+}
+
+/* Auth */
+function connect() {
+  var token = document.getElementById("tokenInput").value.trim();
+  if (!token) { document.getElementById("authError").textContent = "请输入管理员令牌"; return; }
+  adminToken = token;
+  document.getElementById("authError").textContent = "";
+  document.getElementById("connectBtn").textContent = "验证中…";
+  document.getElementById("connectBtn").disabled = true;
+  apiFetch("/api/status").then(function(data) {
+    statusData = data;
+    document.getElementById("authGate").style.display = "none";
+    document.getElementById("app").classList.add("active");
+    renderOverview();
+    loadTokens();
+    renderTunnels();
+    renderConfig();
+  }).catch(function(err) {
+    adminToken = "";
+    document.getElementById("authError").textContent = err.message || "认证失败，请检查令牌";
+  }).finally(function() {
+    document.getElementById("connectBtn").textContent = "连接";
+    document.getElementById("connectBtn").disabled = false;
+  });
+}
+
+function disconnect() {
+  adminToken = "";
+  statusData = null;
+  tokensData = [];
+  document.getElementById("app").classList.remove("active");
+  document.getElementById("authGate").style.display = "flex";
+  document.getElementById("tokenInput").value = "";
+}
+
+/* API */
+function apiFetch(path, opts) {
+  opts = opts || {};
+  var headers = { "Authorization": "Bearer " + adminToken, "Content-Type": "application/json" };
+  if (opts.method && opts.method !== "GET") { headers["X-CSRF-Token"] = csrfToken; }
+  return fetch(path, { method: opts.method || "GET", headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined })
+    .then(function(res) {
+      if (res.status === 401) throw new Error("认证失败：令牌无效或已过期");
+      if (res.status === 403) throw new Error("请求被拒绝：来源验证失败");
+      if (res.status === 429) throw new Error("请求过于频繁，请稍后再试");
+      if (res.status === 204) return null;
+      if (!res.ok) return res.json().then(function(d) { throw new Error(d.message || "请求失败 (" + res.status + ")"); });
+      return res.json();
+    });
+}
+
+/* Navigation */
+function switchSection(name) {
+  document.querySelectorAll(".section").forEach(function(s) { s.classList.remove("active"); });
+  document.getElementById("sec-" + name).classList.add("active");
+  document.querySelectorAll(".nav-item").forEach(function(n) { n.classList.toggle("active", n.dataset.section === name); });
+  document.querySelectorAll(".mobile-nav button").forEach(function(n) { n.classList.toggle("active", n.dataset.section === name); });
+}
+
+/* Overview */
+function renderOverview() {
+  if (!statusData) return;
+  var sys = statusData.system || {};
+  var cards = [
+    { label: "主机名", value: sys.hostname || "—", sub: sys.platform || "" },
+    { label: "系统架构", value: sys.arch || "—", sub: sys.platform ? sys.platform + (sys.release ? " " + sys.release : "") : "" },
+    { label: "运行时间", value: formatUptime(sys.uptime), sub: "自上次启动" },
+    { label: "CPU 核心", value: String(sys.cpus || "—"), sub: sys.cpuModel || "" },
+    { label: "内存", value: formatBytes(sys.totalMemory), sub: "可用 " + formatBytes(sys.freeMemory) },
+    { label: "Node.js", value: sys.nodeVersion || "—", sub: "运行时版本" }
+  ];
+  var html = "";
+  cards.forEach(function(c) {
+    html += '<div class="stat-card"><div class="label">' + esc(c.label) + '</div><div class="value">' + esc(c.value) + '</div><div class="sub">' + esc(c.sub) + '</div></div>';
+  });
+  document.getElementById("sysCards").innerHTML = html;
+  document.getElementById("overviewLoading").style.display = "none";
+  document.getElementById("overviewContent").style.display = "block";
+
+  /* Tunnel summary */
+  var tunnels = statusData.tunnels || {};
+  var tHtml = "";
+  var kinds = Object.keys(tunnels);
+  if (kinds.length === 0) { tHtml = '<p style="color:var(--muted);font-size:13px">无隧道信息</p>'; }
+  kinds.forEach(function(k) {
+    var t = tunnels[k];
+    var installed = Boolean(t && t.installed);
+    var running = Boolean(t && t.managedRunning);
+    var statusText = !installed ? "未安装" : (running ? "运行中" : "已停止");
+    tHtml += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><span style="font-size:14px;font-weight:500">' + esc(k) + '</span><span class="tunnel-status ' + (running ? "running" : "stopped") + '">' + statusText + '</span></div>';
+  });
+  document.getElementById("tunnelSummary").innerHTML = tHtml;
+}
+
+/* Tokens */
+function loadTokens() {
+  document.getElementById("tokensLoading").style.display = "flex";
+  document.getElementById("tokenList").style.display = "none";
+  document.getElementById("tokensEmpty").style.display = "none";
+  apiFetch("/api/tokens").then(function(data) {
+    tokensData = data || [];
+    document.getElementById("tokenCount").textContent = tokensData.length;
+    renderTokenList();
+  }).catch(function(err) {
+    showToast(err.message, "error");
+  }).finally(function() {
+    document.getElementById("tokensLoading").style.display = "none";
+  });
+}
+
+function renderTokenList() {
+  var list = document.getElementById("tokenList");
+  if (tokensData.length === 0) {
+    list.style.display = "none";
+    document.getElementById("tokensEmpty").style.display = "block";
+    return;
+  }
+  document.getElementById("tokensEmpty").style.display = "none";
+  list.style.display = "block";
+  var html = "";
+  tokensData.forEach(function(t) {
+    var scopes = (t.scopes || []).map(function(s) { return '<span class="scope-tag">' + esc(SCOPE_LABELS[s] || s) + '</span>'; }).join("");
+    var configured = t.id === "owner" || t.source === "tokens.json";
+    var action = configured
+      ? '<span class="token-managed">由 tokens.json 管理</span>'
+      : '<button class="btn btn-danger btn-sm token-delete" data-token-id="' + esc(t.id) + '" data-token-label="' + esc(t.label || t.id) + '">删除</button>';
+    html += '<li class="token-item"><div class="token-info"><div class="token-label">' + esc(t.label || t.id) + '</div><div class="token-meta"><span>ID: ' + esc(t.id) + '</span>' + (t.createdAt ? '<span>创建于 ' + new Date(t.createdAt).toLocaleDateString("zh-CN") + '</span>' : '') + (t.source ? '<span>' + esc(t.source) + '</span>' : '') + '</div><div class="token-scopes">' + scopes + '</div></div>' + action + '</li>';
+  });
+  list.innerHTML = html;
+  list.querySelectorAll(".token-delete").forEach(function(button) {
+    button.addEventListener("click", function() { confirmDeleteToken(button.dataset.tokenId, button.dataset.tokenLabel); });
+  });
+}
+
+function renderScopes() {
+  var grid = document.getElementById("scopesGrid");
+  var html = "";
+  SCOPES.forEach(function(s) {
+    html += '<label class="scope-checkbox checked" data-scope="' + s + '"><input type="checkbox" checked><span class="scope-check"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6l3 3 5-5"/></svg></span>' + esc(SCOPE_LABELS[s] || s) + '</label>';
+  });
+  grid.innerHTML = html;
+  grid.querySelectorAll(".scope-checkbox input").forEach(function(input) {
+    input.addEventListener("change", function() { input.closest(".scope-checkbox").classList.toggle("checked", input.checked); });
+  });
+}
+
+function createToken() {
+  var label = document.getElementById("tokenLabel").value.trim() || "Agent token";
+  var scopes = [];
+  document.querySelectorAll("#scopesGrid .scope-checkbox").forEach(function(el) {
+    if (el.querySelector("input").checked) scopes.push(el.dataset.scope);
+  });
+  if (scopes.length === 0) { showToast("请至少选择一个权限范围", "error"); return; }
+  apiFetch("/api/tokens", { method: "POST", body: { label: label, scopes: scopes } }).then(function(data) {
+    showToast("令牌创建成功", "success");
+    document.getElementById("tokenLabel").value = "";
+    if (data && data.token) {
+      document.getElementById("newTokenResult").innerHTML = '<div class="new-token-result"><div class="label">新令牌（仅显示一次，请妥善保存）</div><code>' + esc(data.token) + '</code></div>';
+    } else {
+      document.getElementById("newTokenResult").innerHTML = "";
+    }
+    loadTokens();
+  }).catch(function(err) { showToast(err.message, "error"); });
+}
+
+function confirmDeleteToken(id, label) {
+  document.getElementById("dialogTitle").textContent = "删除令牌";
+  document.getElementById("dialogMsg").textContent = "确定要删除令牌「" + label + "」吗？此操作不可撤销，使用该令牌的服务将立即失去访问权限。";
+  document.getElementById("dialogOverlay").style.display = "flex";
+  pendingDialogAction = function() {
+    apiFetch("/api/tokens/" + encodeURIComponent(id), { method: "DELETE" }).then(function() {
+      showToast("令牌已删除", "success");
+      loadTokens();
+    }).catch(function(err) { showToast(err.message, "error"); });
+  };
+}
+
+function dialogAction() { if (pendingDialogAction) pendingDialogAction(); closeDialog(); }
+function closeDialog() { document.getElementById("dialogOverlay").style.display = "none"; pendingDialogAction = null; }
+
+/* Tunnels */
+function renderTunnels() {
+  var tunnels = (statusData && statusData.tunnels) || {};
+  var kinds = [
+    { key: "frpc", name: "FRP Client", desc: "通过 FRP 内网穿透服务暴露本地 MCP 端口，适用于无公网 IP 的环境。" },
+    { key: "cloudflared", name: "Cloudflare Tunnel", desc: "通过 Cloudflare 零信任隧道安全暴露服务，自带 HTTPS 加密与 DDoS 防护。" }
+  ];
+  var html = "";
+  kinds.forEach(function(k) {
+    var info = tunnels[k.key] || {};
+    var installed = Boolean(info.installed);
+    var running = Boolean(info.managedRunning);
+    var statusText = !installed ? "未安装" : (running ? "运行中" : "已停止");
+    html += '<div class="tunnel-card">' +
+      '<div class="tunnel-card-header"><span class="tunnel-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>' + k.name + '</span><span class="tunnel-status ' + (running ? "running" : "stopped") + '" id="tstatus-' + k.key + '">' + statusText + '</span></div>' +
+      '<p class="tunnel-desc">' + k.desc + (info.version ? '<br>版本：' + esc(info.version) : '') + '</p>' +
+      '<div class="tunnel-actions"><button class="btn btn-success btn-sm" id="tstart-' + k.key + '" onclick="tunnelAction(\'' + k.key + '\',\'start\')" ' + (running || !installed ? "disabled style=\"opacity:0.4;cursor:default\"" : "") + '>启动</button><button class="btn btn-danger btn-sm" id="tstop-' + k.key + '" onclick="tunnelAction(\'' + k.key + '\',\'stop\')" ' + (!running ? "disabled style=\"opacity:0.4;cursor:default\"" : "") + '>停止</button></div></div>';
+  });
+  document.getElementById("tunnelGrid").innerHTML = html;
+}
+
+function tunnelAction(kind, action) {
+  var startBtn = document.getElementById("tstart-" + kind);
+  var stopBtn = document.getElementById("tstop-" + kind);
+  if (startBtn) startBtn.disabled = true;
+  if (stopBtn) stopBtn.disabled = true;
+  apiFetch("/api/tunnels/" + kind + "/" + action, { method: "POST" }).then(function() {
+    showToast(kind + " 隧道已" + (action === "start" ? "启动" : "停止"), "success");
+    if (statusData && statusData.tunnels && statusData.tunnels[kind]) statusData.tunnels[kind].managedRunning = action === "start";
+    var status = document.getElementById("tstatus-" + kind);
+    if (status) { status.className = "tunnel-status " + (action === "start" ? "running" : "stopped"); status.textContent = action === "start" ? "运行中" : "已停止"; }
+    if (startBtn) { startBtn.disabled = action === "start"; startBtn.style.opacity = action === "start" ? "0.4" : "1"; }
+    if (stopBtn) { stopBtn.disabled = action !== "start"; stopBtn.style.opacity = action !== "start" ? "0.4" : "1"; }
+  }).catch(function(err) {
+    showToast(err.message, "error");
+    renderTunnels();
+  });
+}
+
+/* Config */
+function renderConfig() {
+  if (!statusData || !statusData.config) return;
+  document.getElementById("configBlock").textContent = JSON.stringify(statusData.config, null, 2);
+}
+
+/* Utilities */
+function esc(s) { var d = document.createElement("div"); d.textContent = String(s); return d.innerHTML; }
+
+function formatUptime(seconds) {
+  if (!seconds && seconds !== 0) return "—";
+  var d = Math.floor(seconds / 86400), h = Math.floor((seconds % 86400) / 3600), m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return d + " 天 " + h + " 小时";
+  if (h > 0) return h + " 小时 " + m + " 分";
+  return m + " 分钟";
+}
+
+function formatBytes(bytes) {
+  if (!bytes && bytes !== 0) return "—";
+  if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + " GB";
+  if (bytes >= 1048576) return (bytes / 1048576).toFixed(0) + " MB";
+  return (bytes / 1024).toFixed(0) + " KB";
+}
+
+function showToast(msg, type) {
+  var container = document.getElementById("toasts");
+  var toast = document.createElement("div");
+  toast.className = "toast " + (type || "");
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(function() { toast.style.opacity = "0"; toast.style.transform = "translateX(20px)"; toast.style.transition = "all 0.3s"; setTimeout(function() { toast.remove(); }, 300); }, 3500);
+}
+
+/* Init */
+document.getElementById("tokenInput").addEventListener("keydown", function(e) { if (e.key === "Enter") connect(); });
+renderScopes();
+</script>
+</body>
+</html>
