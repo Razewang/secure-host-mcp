@@ -52,6 +52,89 @@ describe("AuthService", () => {
     await expect(auth.authenticate(created.token)).rejects.toThrow("invalid or expired token");
   });
 
+  it("serializes overlapping connection-token creations", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
+    await store.ensureAdminToken("admin");
+    const auth = new AuthService(await store.loadConfig(), store); await auth.initialize();
+    const originalSave = store.saveTokenConfig.bind(store);
+    let releaseFirstSave!: () => void;
+    let signalFirstSave!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => { signalFirstSave = resolve; });
+    const firstSaveBlocked = new Promise<void>((resolve) => { releaseFirstSave = resolve; });
+    let saveCount = 0;
+    store.saveTokenConfig = async (config) => {
+      saveCount += 1;
+      if (saveCount === 1) {
+        signalFirstSave();
+        await firstSaveBlocked;
+      }
+      await originalSave(config);
+    };
+
+    const firstPending = auth.createToken("First", ["system.read"]);
+    await firstSaveStarted;
+    const secondPending = auth.createToken("Second", ["command.run"]);
+    releaseFirstSave();
+    const [first, second] = await Promise.all([firstPending, secondPending]);
+
+    expect((await store.loadTokenConfig())?.connectionTokens.map((record) => record.id)).toEqual([first.id, second.id]);
+    expect((await auth.authenticate(first.token)).id).toBe(first.id);
+    expect((await auth.authenticate(second.token)).id).toBe(second.id);
+  });
+
+  it("serializes token creation with revocation", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
+    await store.saveTokenConfig({
+      version: 1,
+      adminToken: "admin",
+      connectionTokens: [{ id: "old", token: "old-token", label: "Old", scopes: ["system.read"] }]
+    });
+    const auth = new AuthService(await store.loadConfig(), store); await auth.initialize();
+    const originalSave = store.saveTokenConfig.bind(store);
+    let releaseFirstSave!: () => void;
+    let signalFirstSave!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => { signalFirstSave = resolve; });
+    const firstSaveBlocked = new Promise<void>((resolve) => { releaseFirstSave = resolve; });
+    let saveCount = 0;
+    store.saveTokenConfig = async (config) => {
+      saveCount += 1;
+      if (saveCount === 1) {
+        signalFirstSave();
+        await firstSaveBlocked;
+      }
+      await originalSave(config);
+    };
+
+    const createPending = auth.createToken("New", ["command.run"]);
+    await firstSaveStarted;
+    const revokePending = auth.revokeToken("old");
+    releaseFirstSave();
+    const [created] = await Promise.all([createPending, revokePending]);
+
+    expect((await store.loadTokenConfig())?.connectionTokens.map((record) => record.id)).toEqual([created.id]);
+    expect((await auth.authenticate(created.token)).id).toBe(created.id);
+    await expect(auth.authenticate("old-token")).rejects.toThrow("invalid or expired token");
+  });
+
+  it("continues token mutations after a failed save", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
+    await store.ensureAdminToken("admin");
+    const auth = new AuthService(await store.loadConfig(), store); await auth.initialize();
+    const originalSave = store.saveTokenConfig.bind(store);
+    let saveCount = 0;
+    store.saveTokenConfig = async (config) => {
+      saveCount += 1;
+      if (saveCount === 1) throw new Error("simulated write failure");
+      await originalSave(config);
+    };
+
+    await expect(auth.createToken("Failed", ["system.read"])).rejects.toThrow("simulated write failure");
+    const created = await auth.createToken("Recovered", ["command.run"]);
+
+    expect((await store.loadTokenConfig())?.connectionTokens.map((record) => record.id)).toEqual([created.id]);
+    expect((await auth.authenticate(created.token)).id).toBe(created.id);
+  });
+
   it("keeps derived connection-token identities stable when the file is reordered", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
     const first: ConfiguredToken = { token: "first-token", label: "First", scopes: ["system.read"] };
