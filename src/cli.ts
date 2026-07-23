@@ -4,7 +4,7 @@ import { ConfigStore } from "./config.js";
 import { startServer } from "./server.js";
 import { TunnelManager } from "./tunnels.js";
 import { startPrivilegeHelper } from "./privilege.js";
-import { prepareInteractiveLaunch, setupSummary } from "./launch.js";
+import { enableLanHttp, prepareInteractiveLaunch, setupSummary } from "./launch.js";
 import { packageVersion } from "./version.js";
 
 const program = new Command().name("secure-host-mcp").description("Cross-platform remote terminal MCP host").version(packageVersion());
@@ -20,7 +20,7 @@ function printSetupSummary(config: Awaited<ReturnType<ConfigStore["loadConfig"]>
 program.command("setup").description("Create configuration and the owner token").option("--public-url <url>").option("--allow-lan-http").action(async (options: { publicUrl?: string; allowLanHttp?: boolean }) => {
   const store = new ConfigStore(); const config = await store.loadConfig();
   if (options.publicUrl) config.publicBaseUrl = options.publicUrl;
-  if (options.allowLanHttp) config.admin.allowLanHttp = true;
+  if (options.allowLanHttp) enableLanHttp(config);
   await store.saveConfig(config); const token = await store.ensureOwnerToken();
   console.log(`Configuration: ${store.configPath}`); printSetupSummary(config); if (token) console.log(`OWNER TOKEN (shown once): ${token}`); else console.log("Owner token already exists.");
 });

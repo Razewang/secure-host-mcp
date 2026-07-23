@@ -2,6 +2,7 @@ name: release
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - main
@@ -53,9 +54,8 @@ jobs:
   validate:
     if: github.event_name == 'pull_request'
     permissions:
-      contents: write
-      id-token: write
-    uses: ./.github/workflows/publish.yml
+      contents: read
+    uses: ./.github/workflows/build-release.yml
     with:
       version: ""
       publish: false

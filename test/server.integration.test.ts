@@ -11,11 +11,11 @@ import { createApplication } from "../src/server.js";
 
 const dirs: string[] = []; const servers: Server[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve())))); await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
-function listen(app: Express): Promise<number> { return new Promise((resolve) => { const server = app.listen(0, "127.0.0.1", () => { servers.push(server); const address = server.address(); resolve(typeof address === "object" && address ? address.port : 0); }); }); }
+function listen(app: Express, host = "127.0.0.1"): Promise<{ address: string; port: number }> { return new Promise((resolve) => { const server = app.listen(0, host, () => { servers.push(server); const address = server.address(); resolve(typeof address === "object" && address ? { address: address.address, port: address.port } : { address: "", port: 0 }); }); }); }
 
 describe("HTTP integration", () => {
   it("authenticates an MCP client and keeps admin routes off the public app", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const owner = await store.ensureOwnerToken(); const created = await createApplication(store); const port = await listen(created.mcpApp);
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const owner = await store.ensureOwnerToken(); const created = await createApplication(store); const { port } = await listen(created.mcpApp);
     expect((await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`)).status).toBe(200);
     expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(404);
     const client = new Client({ name: "integration-test", version: "1" }); const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: `Bearer ${owner}` } } });
@@ -23,8 +23,9 @@ describe("HTTP integration", () => {
   });
 
   it("keeps the remotely bound administration API behind the owner token", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const owner = await store.ensureOwnerToken(); const created = await createApplication(store); const port = await listen(created.adminApp);
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const owner = await store.ensureOwnerToken(); const created = await createApplication(store); const bound = await listen(created.adminApp, created.config.admin.host); const { port } = bound;
     expect(created.config.admin.host).toBe("0.0.0.0");
+    expect(bound.address).toBe("0.0.0.0");
     expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
     expect((await fetch(`http://127.0.0.1:${port}/api/status`)).status).toBe(401);
     expect((await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { authorization: `Bearer ${owner}` } })).status).toBe(200);
