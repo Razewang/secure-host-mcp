@@ -4,7 +4,7 @@ import { ConfigStore } from "./config.js";
 import { startServer } from "./server.js";
 import { TunnelManager } from "./tunnels.js";
 import { startPrivilegeHelper } from "./privilege.js";
-import { prepareInteractiveLaunch } from "./launch.js";
+import { prepareInteractiveLaunch, setupSummary } from "./launch.js";
 import { packageVersion } from "./version.js";
 
 const program = new Command().name("secure-host-mcp").description("Cross-platform remote terminal MCP host").version(packageVersion());
@@ -14,17 +14,21 @@ async function runServer(store = new ConfigStore()): Promise<void> {
   console.log(`Admin: ${typeof adminAddress === "object" && adminAddress ? `${adminAddress.address}:${adminAddress.port}` : String(adminAddress)}`);
   const stop = () => void running.close().then(() => process.exit(0)); process.on("SIGINT", stop); process.on("SIGTERM", stop);
 }
+function printSetupSummary(config: Awaited<ReturnType<ConfigStore["loadConfig"]>>): void {
+  for (const message of setupSummary(config)) console.log(message);
+}
 program.command("setup").description("Create configuration and the owner token").option("--public-url <url>").option("--allow-lan-http").action(async (options: { publicUrl?: string; allowLanHttp?: boolean }) => {
   const store = new ConfigStore(); const config = await store.loadConfig();
   if (options.publicUrl) config.publicBaseUrl = options.publicUrl;
-  if (options.allowLanHttp) { config.admin.allowLanHttp = true; config.admin.host = "0.0.0.0"; }
+  if (options.allowLanHttp) config.admin.allowLanHttp = true;
   await store.saveConfig(config); const token = await store.ensureOwnerToken();
-  console.log(`Configuration: ${store.configPath}`); if (token) console.log(`OWNER TOKEN (shown once): ${token}`); else console.log("Owner token already exists.");
+  console.log(`Configuration: ${store.configPath}`); printSetupSummary(config); if (token) console.log(`OWNER TOKEN (shown once): ${token}`); else console.log("Owner token already exists.");
 });
 program.command("start").description("Start the MCP and administration HTTP servers").action(async () => runServer());
 program.command("launch", { hidden: true }).description("Initialize on first run, then start the servers").action(async () => {
   const store = new ConfigStore(); const prepared = await prepareInteractiveLaunch(store);
   console.log(`Configuration: ${store.configPath}`);
+  printSetupSummary(prepared.config);
   if (prepared.ownerToken) console.log(`OWNER TOKEN (shown once): ${prepared.ownerToken}`);
   else console.log("Owner token already exists.");
   await runServer(store);

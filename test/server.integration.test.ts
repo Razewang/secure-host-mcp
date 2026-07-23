@@ -21,4 +21,13 @@ describe("HTTP integration", () => {
     const client = new Client({ name: "integration-test", version: "1" }); const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: `Bearer ${owner}` } } });
     await client.connect(transport); const tools = await client.listTools(); expect(tools.tools.map((tool) => tool.name)).toContain("execute_command"); await client.close(); await created.close();
   });
+
+  it("keeps the remotely bound administration API behind the owner token", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const owner = await store.ensureOwnerToken(); const created = await createApplication(store); const port = await listen(created.adminApp);
+    expect(created.config.admin.host).toBe("0.0.0.0");
+    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/api/status`)).status).toBe(401);
+    expect((await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { authorization: `Bearer ${owner}` } })).status).toBe(200);
+    await created.close();
+  });
 });

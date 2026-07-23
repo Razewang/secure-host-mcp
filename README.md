@@ -47,14 +47,14 @@ secure-host-mcp doctor
 secure-host-mcp start
 ```
 
-`setup` prints the owner token once. Store it securely. It is used for direct Bearer authentication, the OAuth approval page, and the administration UI.
+`setup` prints the owner token once. Store it securely. It is used for direct Bearer authentication, the OAuth approval page, and the administration UI. New installations listen on all network interfaces by default so remote clients can connect when the host firewall, router, and cloud security rules permit it.
 
 Endpoints default to:
 
-- MCP and OAuth: `http://127.0.0.1:8767/mcp`
-- Administration: `http://127.0.0.1:8768/`
+- MCP and OAuth: `http://0.0.0.0:8767/mcp`
+- Administration: `http://0.0.0.0:8768/`
 
-ChatGPT requires a remotely reachable HTTPS MCP URL. Put Caddy, Nginx, Cloudflare Tunnel, frp, or another trusted reverse proxy in front of port 8767. A minimal Caddy example is under `examples/`.
+`0.0.0.0` is a bind address, not a client URL. Connect with the server's IP address or DNS name. Both services start even when HTTPS is not configured, but authentication does not encrypt bearer tokens, OAuth codes, or administration traffic. ChatGPT requires a remotely reachable HTTPS MCP URL. Put Caddy, Nginx, Cloudflare Tunnel, frp, or another trusted reverse proxy in front of port 8767, and protect remote administration on port 8768 with HTTPS or a trusted private network. A minimal Caddy example is under `examples/`.
 
 ## ChatGPT OAuth connection
 
@@ -102,12 +102,15 @@ The helper listens only on `127.0.0.1:8769`, authenticates with a random key fro
 - The generated owner token has all scopes. Additional scoped tokens can be added to the restricted secrets store.
 - Secrets live in `~/.secure-host-mcp/secrets.json`; POSIX permissions must be `0600`. Back up and protect this file.
 - Audit logs intentionally contain complete commands and stdout/stderr in plaintext. They rotate by size/day and are retained for 30 days under the data directory.
-- LAN HTTP administration is available with `setup --allow-lan-http`, but exposes login material to network interception. Prefer HTTPS or a trusted VPN.
+- MCP and administration listen on all interfaces by default. Every administration API request requires the owner bearer token, and mutations also require the page CSRF token.
+- Public HTTP is not encrypted: authentication controls access but cannot prevent interception of bearer tokens, OAuth codes, or administration traffic. Prefer HTTPS or a trusted VPN.
 - Tool annotations ask compatible clients to confirm destructive operations. The host cannot prove that a client actually displayed a human confirmation.
 
 ## Configuration
 
 Set `SECURE_HOST_MCP_HOME` to change the data directory. Copy fields from `config.example.json` into the generated `config.json`, then restart. Configuration and secrets are written atomically.
+
+For a loopback-only deployment, explicitly set both `mcp.host` and `admin.host` to `127.0.0.1`. Existing configuration files are preserved during upgrades and are not silently changed to public listeners. The legacy `setup --allow-lan-http` option remains accepted for compatibility; remote administration is already enabled for new installations.
 
 External OIDC can be enabled with `auth.externalIssuer` and `auth.externalAudience`. Tokens are verified against the issuer JWKS and mapped to the same MCP scopes.
 
