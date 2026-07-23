@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { access } from "node:fs/promises";
 import os from "node:os";
 import type { AppConfig } from "./config.js";
-import { AppError, type CommandRequest, type CommandResult } from "./types.js";
+import { AppError, type CommandRequest, type CommandResult, type SystemInfo } from "./types.js";
 
 interface Job { id: string; process: ChildProcessWithoutNullStreams; command: string; startedAt: number; stdout: string; stderr: string; offset: number; status: "running" | "completed" | "failed" | "cancelled"; exitCode: number | null; expiresAt: number; }
 
@@ -61,7 +61,7 @@ export class CommandExecutor {
   private requireJob(id: string): Job { const job = this.jobs.get(id); if (!job) throw new AppError("JOB_NOT_FOUND", `unknown job: ${id}`, 404); return job; }
   private killProcess(child: ChildProcessWithoutNullStreams): void { try { if (process.platform === "win32") spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }); else if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { child.kill("SIGKILL"); } }
   private cleanup(): void { const now = Date.now(); for (const [id, job] of this.jobs) if (job.expiresAt < now && job.status !== "running") this.jobs.delete(id); }
-  systemInfo(): Record<string, unknown> {
+  systemInfo(): SystemInfo {
     const cpus = os.cpus();
     return {
       platform: process.platform,
@@ -74,7 +74,6 @@ export class CommandExecutor {
       totalMemory: os.totalmem(),
       freeMemory: os.freemem(),
       node: process.version,
-      nodeVersion: process.version,
       uid: process.getuid?.(),
       elevated: isProcessElevated(),
       configuredAdminMode: this.config.adminMode

@@ -64,7 +64,7 @@ secure-host-mcp start
 
 `0.0.0.0` 是监听地址，不是客户端应填写的连接地址；客户端应使用服务器 IP 或域名。即使尚未配置 HTTPS，两个服务仍会启动，但鉴权并不能加密 Bearer 令牌、OAuth 授权码或管理流量。ChatGPT 要求 MCP 地址能够通过公网 HTTPS 访问。请在 8767 端口前部署 Caddy、Nginx、Cloudflare Tunnel、frp 或其他可信反向代理，并使用 HTTPS 或可信私有网络保护 8768 端口的远程管理。`examples/` 中提供了一个最小 Caddy 配置示例。
 
-访问管理地址并输入管理员令牌后，会打开响应式管理面板。它可以查看主机资源和运行配置、列出并创建带权限范围的连接 Token，以及控制已配置的 frpc/cloudflared 进程。通过 `tokens.json` 声明的令牌会标记为“配置文件管理”，不能从面板中删除。
+访问管理地址并输入管理员令牌后，会打开中英文响应式管理面板。它可以查看主机资源和运行配置、创建及吊销带权限范围的连接 Token，以及控制已配置的 frpc/cloudflared 进程。通过面板创建的连接 Token 会写入首次配置和手动配置共用的 `tokens.json` 注册表。
 
 例如检测到 `203.0.113.10` 时，向导会显示：
 
@@ -76,7 +76,7 @@ WARNING: HTTP is plaintext...
 
 ## 连接 ChatGPT OAuth
 
-将 `https://mcp.example.com/mcp` 填为服务器地址并选择 OAuth。服务器会发布授权服务器和受保护资源元数据。新客户端可以动态注册；随后 ChatGPT 打开授权页面，由主机所有者输入管理员令牌并批准所需权限范围。服务器使用授权码加 PKCE 流程，并签发支持离线访问的轮换刷新令牌。
+将 `https://mcp.example.com/mcp` 填为服务器地址并选择 OAuth。服务器会发布授权服务器和受保护资源元数据。新客户端可以动态注册；随后 ChatGPT 打开授权页面，由主机管理员输入管理员令牌并批准所需权限范围。服务器使用授权码加 PKCE 流程，并签发支持离线访问的轮换刷新令牌。
 
 ChatGPT 中完整的可写 MCP 支持取决于账户或工作区方案，以及当前 Developer Mode 的开放情况。
 
@@ -118,9 +118,9 @@ sudo secure-host-mcp helper
 ## 安全设计
 
 - 管理员令牌拥有全部权限，可用于网页控制台、OAuth 授权确认页面以及直接 MCP Bearer 鉴权。
-- 用户维护的令牌保存在 `~/.secure-host-mcp/tokens.json`；内部哈希令牌、OAuth 授权和辅助进程密钥保存在 `secrets.json`。POSIX 系统要求这两个密钥文件的权限均为 `0600`，请妥善备份和保护。
+- `~/.secure-host-mcp/tokens.json` 是管理员令牌和直接 MCP 连接 Token 的唯一注册表；OAuth 授权与辅助进程密钥单独保存在 `secrets.json`。POSIX 系统要求这两个文件的权限均为 `0600`，请妥善备份和保护。
 - 审计日志会有意以明文记录完整命令及 stdout/stderr。日志按日期和大小轮换，并在数据目录中保留 30 天。
-- MCP 与管理端默认监听全部网络接口。每个管理 API 请求都必须携带所有者 Bearer 令牌，写操作还必须携带页面 CSRF 令牌。
+- MCP 与管理端默认监听全部网络接口。每个管理 API 请求都必须携带管理员 Bearer 令牌，写操作还必须携带页面 CSRF 令牌。
 - 公网 HTTP 不提供加密：鉴权可以控制访问权限，但无法阻止 Bearer 令牌、OAuth 授权码或管理流量被网络窃听。应优先使用 HTTPS 或可信 VPN。
 - 工具注解会要求兼容客户端在破坏性操作前进行确认，但主机端无法证明客户端确实向用户显示了确认界面。
 
@@ -136,6 +136,7 @@ sudo secure-host-mcp helper
   "adminToken": "my-admin-token",
   "connectionTokens": [
     {
+      "id": "second-agent",
       "token": "agent-2-token",
       "label": "Second agent",
       "scopes": ["system.read", "command.run"]
@@ -144,9 +145,9 @@ sudo secure-host-mcp helper
 }
 ```
 
-修改 `adminToken` 即可轮换管理员令牌；向 `connectionTokens` 添加项目即可创建更多 MCP Bearer 连接 Token。Token 没有格式限制，但不能为空。权限范围只能取自 `system.read`、`command.run`、`command.elevate`、`tunnel.read`、`tunnel.manage` 和 `admin.manage`。编辑后需要重启 Secure Host MCP。只要 `tokens.json` 存在，其中的 `adminToken` 就会取代旧版哈希所有者令牌。完整权限示例见 `tokens.example.json`。
+修改 `adminToken` 即可轮换管理员令牌；向 `connectionTokens` 添加项目即可创建更多 MCP Bearer 连接 Token。手动添加的 Token 可以省略 `id`，服务会根据 Token 值派生稳定标识。Token 没有格式限制，但不能为空且不能重复。权限范围只能取自 `system.read`、`command.run`、`command.elevate`、`tunnel.read`、`tunnel.manage` 和 `admin.manage`。手动编辑后需要重启 Secure Host MCP。完整权限示例见 `tokens.example.json`。
 
-如需仅本机访问，请在配置中明确将 `mcp.host` 和 `admin.host` 都设置为 `127.0.0.1`。升级时会保留已有配置，不会悄悄把旧安装改为公网监听。为兼容旧脚本，仍接受 `setup --allow-lan-http` 参数；新安装已经默认允许远程管理。
+如需仅本机访问，请在配置中明确将 `mcp.host` 和 `admin.host` 都设置为 `127.0.0.1`。新安装默认允许远程管理。
 
 可以通过 `auth.externalIssuer` 和 `auth.externalAudience` 启用外部 OIDC。令牌会使用发行方 JWKS 验证，并映射到相同的 MCP 权限范围。
 

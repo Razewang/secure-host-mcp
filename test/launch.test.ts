@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore } from "../src/config.js";
-import { detectPublicIp, enableLanHttp, prepareInteractiveLaunch, setupSummary } from "../src/launch.js";
+import { setupSummary } from "../src/launch.js";
+import { detectPublicIp, prepareInstallation } from "../src/setup.js";
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
@@ -11,8 +12,8 @@ afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { 
 describe("interactive launch preparation", () => {
   it("persists defaults and creates the editable administrator token only once", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-launch-")); dirs.push(dir); const store = new ConfigStore(dir);
-    const first = await prepareInteractiveLaunch(store, { adminToken: "my-token", hasPublicIp: true, publicAddress: "203.0.113.8" }); const second = await prepareInteractiveLaunch(store);
-    expect(first.ownerToken).toBe("my-token"); expect(second.ownerToken).toBeUndefined();
+    const first = await prepareInstallation(store, { adminToken: "my-token", hasPublicIp: true, publicAddress: "203.0.113.8" }); const second = await prepareInstallation(store);
+    expect(first.adminToken).toBe("my-token"); expect(second.adminToken).toBeUndefined();
     expect(JSON.parse(await readFile(store.configPath, "utf8"))).toMatchObject({ version: 1, dataDir: dir, mcp: { host: "0.0.0.0" }, admin: { host: "0.0.0.0" } });
     expect(JSON.parse(await readFile(store.tokensPath, "utf8"))).toEqual({ version: 1, adminToken: "my-token", connectionTokens: [] });
     expect(setupSummary(first.config).join("\n")).toContain("non-loopback listeners accept remote connections");
@@ -20,20 +21,6 @@ describe("interactive launch preparation", () => {
     expect(setupSummary(first.config).join("\n")).toContain("ChatGPT requires a public HTTPS MCP URL");
     expect(setupSummary(first.config).join("\n")).toContain("Public MCP URL: http://203.0.113.8:8767/mcp");
     expect(setupSummary(first.config).join("\n")).toContain("Web console URL: http://203.0.113.8:8768/");
-  });
-
-  it("restores the legacy LAN opt-in for an existing loopback administration host", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-launch-")); dirs.push(dir); const store = new ConfigStore(dir);
-    const config = await store.loadConfig(); config.admin.host = "127.0.0.1"; config.admin.allowLanHttp = false;
-    enableLanHttp(config);
-    expect(config.admin).toMatchObject({ host: "0.0.0.0", allowLanHttp: true });
-  });
-
-  it("preserves an existing non-loopback host when LAN HTTP is enabled", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-launch-")); dirs.push(dir); const store = new ConfigStore(dir);
-    const config = await store.loadConfig(); config.admin.host = "192.0.2.10"; config.admin.allowLanHttp = false;
-    enableLanHttp(config);
-    expect(config.admin).toMatchObject({ host: "192.0.2.10", allowLanHttp: true });
   });
 
   it("formats IPv6 bind URLs and warns for every non-loopback listener", async () => {
@@ -67,7 +54,7 @@ describe("interactive launch preparation", () => {
 
   it("explains when direct public URLs are unavailable", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-launch-")); dirs.push(dir); const store = new ConfigStore(dir);
-    const prepared = await prepareInteractiveLaunch(store, { hasPublicIp: false });
+    const prepared = await prepareInstallation(store, { hasPublicIp: false });
     expect(setupSummary(prepared.config).join("\n")).toContain("Public MCP URL: unavailable");
     expect(setupSummary(prepared.config).join("\n")).toContain("Web console URL: unavailable");
   });

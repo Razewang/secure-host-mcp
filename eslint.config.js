@@ -6,6 +6,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
+    files: ["src/**/*.ts", "test/**/*.ts"],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname }
     },
@@ -14,6 +15,21 @@ export default tseslint.config(
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-namespace": "off",
       "@typescript-eslint/require-await": "off"
+    }
+  },
+  {
+    ...tseslint.configs.disableTypeChecked,
+    files: ["web/**/*.js"],
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      ecmaVersion: 2022,
+      sourceType: "script",
+      globals: {
+        document: "readonly",
+        navigator: "readonly",
+        fetch: "readonly",
+        setTimeout: "readonly"
+      }
     }
   }
 );
