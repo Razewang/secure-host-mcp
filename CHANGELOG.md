@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/Razewang/secure-host-mcp/compare/v0.1.2...v0.1.3) (2026-07-23)
+
+
+### Features
+
+* add interactive setup and administration dashboard ([c8ce2bd](https://github.com/Razewang/secure-host-mcp/commit/c8ce2bd944cd76b52382cb38a1b7af8d533207f5))
+* add interactive setup and administration dashboard ([61fcd98](https://github.com/Razewang/secure-host-mcp/commit/61fcd98cb4508d1a4869566afcb48799ecb3b6e1))
+
 ## [0.1.2](https://github.com/Razewang/secure-host-mcp/compare/v0.1.1...v0.1.2) (2026-07-23)
 
 
