@@ -3,6 +3,7 @@
   "adminToken": "replace-with-your-administrator-token",
   "connectionTokens": [
     {
+      "id": "primary-agent",
       "token": "replace-with-an-agent-connection-token",
       "label": "Primary agent",
       "scopes": [

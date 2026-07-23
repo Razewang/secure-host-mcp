@@ -64,7 +64,7 @@ Endpoints default to:
 
 `0.0.0.0` is a bind address, not a client URL. Connect with the server's IP address or DNS name. Both services start even when HTTPS is not configured, but authentication does not encrypt bearer tokens, OAuth codes, or administration traffic. ChatGPT requires a remotely reachable HTTPS MCP URL. Put Caddy, Nginx, Cloudflare Tunnel, frp, or another trusted reverse proxy in front of port 8767, and protect remote administration on port 8768 with HTTPS or a trusted private network. A minimal Caddy example is under `examples/`.
 
-The administration URL serves a responsive dashboard after the administrator token is entered. It shows host resources and runtime configuration, lists and creates scoped connection tokens, and controls configured frpc/cloudflared processes. Tokens declared in `tokens.json` are shown as file-managed and cannot be deleted from the dashboard.
+The administration URL serves a responsive bilingual dashboard after the administrator token is entered. It shows host resources and runtime configuration, creates and revokes scoped connection tokens, and controls configured frpc/cloudflared processes. Dashboard-created connection tokens are written to the same `tokens.json` registry used by setup and manual configuration.
 
 For example, when setup detects `203.0.113.10`, it prints:
 
@@ -76,7 +76,7 @@ WARNING: HTTP is plaintext...
 
 ## ChatGPT OAuth connection
 
-Use `https://mcp.example.com/mcp` as the server URL and choose OAuth. The server publishes its authorization and protected-resource metadata. A new client dynamically registers, ChatGPT opens the authorization page, and the host owner enters the administrator token and approves the requested scopes. The server uses authorization code + PKCE and issues rotating refresh tokens with offline access.
+Use `https://mcp.example.com/mcp` as the server URL and choose OAuth. The server publishes its authorization and protected-resource metadata. A new client dynamically registers, ChatGPT opens the authorization page, and the host administrator enters the administrator token and approves the requested scopes. The server uses authorization code + PKCE and issues rotating refresh tokens with offline access.
 
 Full write-capable MCP support in ChatGPT depends on the account/workspace plan and current Developer Mode availability.
 
@@ -118,9 +118,9 @@ The helper listens only on `127.0.0.1:8769`, authenticates with a random key fro
 ## Security choices
 
 - The configured administrator token has all scopes and is accepted by the web console, OAuth approval page, and direct MCP Bearer authentication.
-- User-managed tokens live in `~/.secure-host-mcp/tokens.json`; internal hashed tokens, OAuth grants, and helper secrets live in `secrets.json`. Both secret files must use mode `0600` on POSIX. Back them up and protect them.
+- `~/.secure-host-mcp/tokens.json` is the single registry for the administrator token and direct MCP connection tokens. OAuth grants and helper secrets live separately in `secrets.json`. Both files must use mode `0600` on POSIX. Back them up and protect them.
 - Audit logs intentionally contain complete commands and stdout/stderr in plaintext. They rotate by size/day and are retained for 30 days under the data directory.
-- MCP and administration listen on all interfaces by default. Every administration API request requires the owner bearer token, and mutations also require the page CSRF token.
+- MCP and administration listen on all interfaces by default. Every administration API request requires the administrator bearer token, and mutations also require the page CSRF token.
 - Public HTTP is not encrypted: authentication controls access but cannot prevent interception of bearer tokens, OAuth codes, or administration traffic. Prefer HTTPS or a trusted VPN.
 - Tool annotations ask compatible clients to confirm destructive operations. The host cannot prove that a client actually displayed a human confirmation.
 
@@ -136,6 +136,7 @@ The generated `tokens.json` is intentionally editable:
   "adminToken": "my-admin-token",
   "connectionTokens": [
     {
+      "id": "second-agent",
       "token": "agent-2-token",
       "label": "Second agent",
       "scopes": ["system.read", "command.run"]
@@ -144,9 +145,9 @@ The generated `tokens.json` is intentionally editable:
 }
 ```
 
-Change `adminToken` to rotate the administrator token, or append entries to `connectionTokens` to create more direct MCP Bearer tokens. Token values have no pattern requirement but must be non-empty. Scopes must come from `system.read`, `command.run`, `command.elevate`, `tunnel.read`, `tunnel.manage`, and `admin.manage`. Restart Secure Host MCP after editing. If `tokens.json` exists, its `adminToken` supersedes a legacy hashed owner token. See `tokens.example.json` for a full-access example.
+Change `adminToken` to rotate the administrator token, or append entries to `connectionTokens` to create more direct MCP Bearer tokens. `id` is optional for manually added tokens; when omitted, the service derives a stable identifier from the token value. Token values have no pattern requirement but must be non-empty and unique. Scopes must come from `system.read`, `command.run`, `command.elevate`, `tunnel.read`, `tunnel.manage`, and `admin.manage`. Restart Secure Host MCP after manual edits. See `tokens.example.json` for a full-access example.
 
-For a loopback-only deployment, explicitly set both `mcp.host` and `admin.host` to `127.0.0.1`. Existing configuration files are preserved during upgrades and are not silently changed to public listeners. The legacy `setup --allow-lan-http` option remains accepted for compatibility; remote administration is already enabled for new installations.
+For a loopback-only deployment, explicitly set both `mcp.host` and `admin.host` to `127.0.0.1`. New installations enable remote administration by default.
 
 External OIDC can be enabled with `auth.externalIssuer` and `auth.externalAudience`. Tokens are verified against the issuer JWKS and mapped to the same MCP scopes.
 

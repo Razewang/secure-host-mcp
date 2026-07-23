@@ -4,15 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AuthService } from "../src/auth.js";
-import { ConfigStore } from "../src/config.js";
+import { ConfigStore, type ConfiguredToken } from "../src/config.js";
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 
 describe("AuthService", () => {
-  it("supports owner bearer and OAuth PKCE with rotating refresh", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const owner = await store.ensureOwnerToken(); const config = await store.loadConfig(); const auth = new AuthService(config, store); await auth.initialize();
-    expect((await auth.authenticate(owner!)).scopes).toContain("admin.manage");
+  it("supports administrator bearer and OAuth PKCE with rotating refresh", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const admin = await store.ensureAdminToken(); const config = await store.loadConfig(); const auth = new AuthService(config, store); await auth.initialize();
+    expect((await auth.authenticate(admin!)).scopes).toContain("admin.manage");
     const client = await auth.registerClient({ client_name: "test", redirect_uris: ["http://127.0.0.1/callback"], token_endpoint_auth_method: "client_secret_post" }); const verifier = "a".repeat(48); const challenge = createHash("sha256").update(verifier).digest("base64url");
     const code = await auth.issueCode({ clientId: String(client.client_id), redirectUri: "http://127.0.0.1/callback", scope: "command.run", challenge });
     const tokens = await auth.exchange(new URLSearchParams({ grant_type: "authorization_code", client_id: String(client.client_id), client_secret: String(client.client_secret), redirect_uri: "http://127.0.0.1/callback", code, code_verifier: verifier }));
@@ -20,7 +20,7 @@ describe("AuthService", () => {
     await expect(auth.exchange(new URLSearchParams({ grant_type: "authorization_code", client_id: String(client.client_id), client_secret: String(client.client_secret), redirect_uri: "http://127.0.0.1/callback", code, code_verifier: verifier }))).rejects.toThrow();
   });
   it("rejects unsafe dynamic-registration redirect URIs", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const auth = new AuthService(await store.loadConfig(), store); await auth.initialize();
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); await store.ensureAdminToken("admin"); const auth = new AuthService(await store.loadConfig(), store); await auth.initialize();
     await expect(auth.registerClient({ redirect_uris: ["http://evil.example/callback"] })).rejects.toThrow("valid redirect_uris");
   });
 
@@ -29,24 +29,46 @@ describe("AuthService", () => {
     await store.saveTokenConfig({
       version: 1,
       adminToken: "123456",
-      connectionTokens: [{ token: "agentABC", label: "Local agent", scopes: ["system.read", "command.run"] }]
+      connectionTokens: [{ id: "local-agent", token: "agentABC", label: "Local agent", scopes: ["system.read", "command.run"] }]
     });
     const config = await store.loadConfig(); const auth = new AuthService(config, store); await auth.initialize();
-    expect(auth.requireOwner("123456")).toBe(true);
+    expect(auth.requireAdmin("123456")).toBe(true);
     expect((await auth.authenticate("123456")).scopes).toContain("admin.manage");
     expect((await auth.authenticate("agentABC")).scopes).toEqual(["system.read", "command.run"]);
     expect(auth.listTokens()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "owner", source: "tokens.json" }),
-      expect.objectContaining({ id: "configured:1", label: "Local agent", source: "tokens.json" })
+      expect.objectContaining({ id: "admin", role: "admin", revocable: false }),
+      expect.objectContaining({ id: "local-agent", label: "Local agent", role: "agent", revocable: true })
     ]));
   });
 
-  it("uses tokens.json as the authoritative administrator token after restart", async () => {
+  it("creates and revokes connection tokens in the single token registry", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
-    const legacyOwner = await store.ensureOwnerToken();
-    await store.saveTokenConfig({ version: 1, adminToken: "replacement", connectionTokens: [] });
+    await store.ensureAdminToken("admin");
     const auth = new AuthService(await store.loadConfig(), store); await auth.initialize();
-    await expect(auth.authenticate(legacyOwner!)).rejects.toThrow("invalid or expired token");
-    expect(auth.requireOwner("replacement")).toBe(true);
+    const created = await auth.createToken("Dashboard", ["system.read"]);
+    expect((await auth.authenticate(created.token)).id).toBe(created.id);
+    expect((await store.loadTokenConfig())?.connectionTokens).toEqual([expect.objectContaining({ id: created.id, token: created.token })]);
+    await auth.revokeToken(created.id);
+    await expect(auth.authenticate(created.token)).rejects.toThrow("invalid or expired token");
+  });
+
+  it("keeps derived connection-token identities stable when the file is reordered", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
+    const first: ConfiguredToken = { token: "first-token", label: "First", scopes: ["system.read"] };
+    const second: ConfiguredToken = { token: "second-token", label: "Second", scopes: ["command.run"] };
+    await store.saveTokenConfig({ version: 1, adminToken: "admin", connectionTokens: [first, second] });
+    const before = new AuthService(await store.loadConfig(), store); await before.initialize();
+    const firstId = (await before.authenticate(first.token)).id;
+    const secondId = (await before.authenticate(second.token)).id;
+    await store.saveTokenConfig({ version: 1, adminToken: "admin", connectionTokens: [second, first] });
+    const after = new AuthService(await store.loadConfig(), store); await after.initialize();
+    expect((await after.authenticate(first.token)).id).toBe(firstId);
+    expect((await after.authenticate(second.token)).id).toBe(secondId);
+  });
+
+  it("fails closed when setup has not created the token registry", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
+    const auth = new AuthService(await store.loadConfig(), store);
+    await expect(auth.initialize()).rejects.toThrow("Run setup before starting");
   });
 });

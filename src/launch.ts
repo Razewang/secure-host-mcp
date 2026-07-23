@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import type { AppConfig, ConfigStore } from "./config.js";
+import type { AppConfig } from "./config.js";
 
 function normalizedHost(host: string): string {
   const normalized = host.toLowerCase();
@@ -24,11 +24,6 @@ function mcpUrl(baseUrl: string): string {
   return normalized.endsWith("/mcp") ? normalized : `${normalized}/mcp`;
 }
 
-export function enableLanHttp(config: AppConfig): void {
-  config.admin.allowLanHttp = true;
-  if (isLoopbackHost(config.admin.host)) config.admin.host = "0.0.0.0";
-}
-
 export function setupSummary(config: AppConfig): string[] {
   const messages = [
     `MCP bind: ${httpUrl(config.mcp.host, config.mcp.port, "/mcp")}`,
@@ -50,25 +45,4 @@ export function setupSummary(config: AppConfig): string[] {
     messages.push("ChatGPT requires a public HTTPS MCP URL. Configure --public-url with an HTTPS reverse proxy, Cloudflare Tunnel, or frp endpoint.");
   }
   return messages;
-}
-
-export async function detectPublicIp(fetcher: typeof fetch = fetch): Promise<string | undefined> {
-  try {
-    const response = await fetcher("https://www.cloudflare.com/cdn-cgi/trace", { signal: AbortSignal.timeout(5000) });
-    if (!response.ok) return undefined;
-    const address = (await response.text()).match(/^ip=(.+)$/m)?.[1]?.trim();
-    return address && isIP(address) ? address : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export async function prepareInteractiveLaunch(store: ConfigStore, options: { adminToken?: string; hasPublicIp?: boolean; publicAddress?: string } = {}): Promise<{ config: AppConfig; ownerToken?: string }> {
-  const config = await store.loadConfig();
-  if (options.hasPublicIp !== undefined) config.network.hasPublicIp = options.hasPublicIp;
-  if (options.publicAddress) config.network.publicAddress = options.publicAddress;
-  else if (options.hasPublicIp === false) delete config.network.publicAddress;
-  await store.saveConfig(config);
-  const ownerToken = await store.ensureConfiguredAdminToken(options.adminToken);
-  return { config, ...(ownerToken ? { ownerToken } : {}) };
 }

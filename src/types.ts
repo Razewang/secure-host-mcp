@@ -28,6 +28,22 @@ export interface CommandResult {
   truncated: boolean;
 }
 
+export interface SystemInfo {
+  platform: NodeJS.Platform;
+  arch: string;
+  hostname: string;
+  release: string;
+  uptime: number;
+  cpus: number;
+  cpuModel?: string;
+  totalMemory: number;
+  freeMemory: number;
+  node: string;
+  uid?: number;
+  elevated: boolean;
+  configuredAdminMode: boolean;
+}
+
 export class AppError extends Error {
   constructor(
     public readonly code: string,

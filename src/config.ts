@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,18 +6,27 @@ import { z } from "zod";
 import { ALL_SCOPES, AppError, type Scope } from "./types.js";
 
 const NonEmptyTokenSchema = z.string().refine((value) => value.trim().length > 0, "token must not be empty");
-const TokenRecordSchema = z.object({
-  id: z.string(), label: z.string(), salt: z.string(), hash: z.string(), scopes: z.array(z.enum(ALL_SCOPES)), createdAt: z.string()
-});
 const ConfiguredTokenSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9._:-]{1,120}$/).optional(),
   token: NonEmptyTokenSchema,
   label: z.string().max(120).default("Configured agent token"),
-  scopes: z.array(z.enum(ALL_SCOPES)).default([...ALL_SCOPES])
+  scopes: z.array(z.enum(ALL_SCOPES)).default([...ALL_SCOPES]),
+  createdAt: z.string().datetime().optional()
 });
 const TokenConfigSchema = z.object({
   version: z.literal(1).default(1),
   adminToken: NonEmptyTokenSchema,
   connectionTokens: z.array(ConfiguredTokenSchema).default([])
+}).superRefine((config, context) => {
+  const ids = new Set<string>();
+  const tokens = new Set([config.adminToken]);
+  config.connectionTokens.forEach((record, index) => {
+    if (record.id === "admin") context.addIssue({ code: "custom", path: ["connectionTokens", index, "id"], message: "token id admin is reserved" });
+    if (record.id && ids.has(record.id)) context.addIssue({ code: "custom", path: ["connectionTokens", index, "id"], message: "token id must be unique" });
+    if (tokens.has(record.token)) context.addIssue({ code: "custom", path: ["connectionTokens", index, "token"], message: "token value must be unique" });
+    if (record.id) ids.add(record.id);
+    tokens.add(record.token);
+  });
 });
 
 const ConfigSchema = z.object({
@@ -25,7 +34,7 @@ const ConfigSchema = z.object({
   dataDir: z.string(),
   publicBaseUrl: z.string().url().optional(),
   mcp: z.object({ host: z.string().default("0.0.0.0"), port: z.number().int().min(1).max(65535).default(8767) }),
-  admin: z.object({ host: z.string().default("0.0.0.0"), port: z.number().int().min(1).max(65535).default(8768), allowLanHttp: z.boolean().default(true) }),
+  admin: z.object({ host: z.string().default("0.0.0.0"), port: z.number().int().min(1).max(65535).default(8768) }),
   execution: z.object({ maxTimeoutMs: z.number().int().positive().default(120000), maxOutputBytes: z.number().int().positive().default(1048576), maxJobs: z.number().int().positive().default(8), jobTtlMs: z.number().int().positive().default(3600000), shell: z.string().optional() }),
   audit: z.object({ retentionDays: z.number().int().positive().default(30), maxFileBytes: z.number().int().positive().default(25 * 1024 * 1024) }),
   auth: z.object({ externalIssuer: z.string().url().optional(), externalAudience: z.string().optional() }).default({}),
@@ -36,14 +45,13 @@ const ConfigSchema = z.object({
 });
 
 const SecretsSchema = z.object({
-  tokens: z.array(TokenRecordSchema).default([]),
   helperKey: z.string().optional(),
   oauth: z.object({ clients: z.array(z.record(z.unknown())).default([]), grants: z.array(z.record(z.unknown())).default([]) }).default({ clients: [], grants: [] })
 });
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
 export type Secrets = z.infer<typeof SecretsSchema>;
-export type TokenRecord = z.infer<typeof TokenRecordSchema>;
+export type ConfiguredToken = z.infer<typeof ConfiguredTokenSchema>;
 export type TokenConfig = z.infer<typeof TokenConfigSchema>;
 
 export function defaultDataDir(): string {
@@ -102,25 +110,12 @@ export class ConfigStore {
 
   async saveTokenConfig(config: TokenConfig): Promise<void> { await atomicWrite(this.tokensPath, TokenConfigSchema.parse(config), true); }
 
-  async hasOwnerToken(): Promise<boolean> {
-    if (await this.loadTokenConfig()) return true;
-    return (await this.loadSecrets()).tokens.some((token) => token.id === "owner");
-  }
+  async hasAdminToken(): Promise<boolean> { return Boolean(await this.loadTokenConfig()); }
 
-  async ensureConfiguredAdminToken(requestedToken?: string): Promise<string | undefined> {
-    if (await this.hasOwnerToken()) return undefined;
+  async ensureAdminToken(requestedToken?: string): Promise<string | undefined> {
+    if (await this.hasAdminToken()) return undefined;
     const token = requestedToken ?? randomBytes(32).toString("base64url");
     await this.saveTokenConfig({ version: 1, adminToken: token, connectionTokens: [] });
-    return token;
-  }
-
-  async ensureOwnerToken(): Promise<string | undefined> {
-    const secrets = await this.loadSecrets();
-    if (secrets.tokens.some((token) => token.id === "owner")) return undefined;
-    const token = randomBytes(32).toString("base64url");
-    const salt = randomBytes(16).toString("hex");
-    secrets.tokens.push({ id: "owner", label: "Host owner", salt, hash: hashToken(token, salt), scopes: [...ALL_SCOPES], createdAt: new Date().toISOString() });
-    await this.saveSecrets(secrets);
     return token;
   }
 
@@ -131,10 +126,4 @@ export class ConfigStore {
   }
 }
 
-export function hashToken(token: string, salt: string): string { return scryptSync(token, salt, 32).toString("hex"); }
-export function tokenMatches(token: string, record: TokenRecord): boolean {
-  const expected = Buffer.from(record.hash, "hex");
-  const actual = Buffer.from(hashToken(token, record.salt), "hex");
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
 export function hasScope(scopes: readonly Scope[], required: Scope): boolean { return scopes.includes(required); }
