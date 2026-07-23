@@ -47,14 +47,14 @@ secure-host-mcp doctor
 secure-host-mcp start
 ```
 
-`setup` 只会显示一次所有者令牌，请妥善保存。该令牌可用于直接 Bearer 鉴权、OAuth 授权确认页面以及管理界面。
+`setup` 只会显示一次所有者令牌，请妥善保存。该令牌可用于直接 Bearer 鉴权、OAuth 授权确认页面以及管理界面。新安装默认监听全部网络接口，只要主机防火墙、路由器和云安全组允许，远程客户端即可连接。
 
 默认端点：
 
-- MCP 与 OAuth：`http://127.0.0.1:8767/mcp`
-- 管理界面：`http://127.0.0.1:8768/`
+- MCP 与 OAuth：`http://0.0.0.0:8767/mcp`
+- 管理界面：`http://0.0.0.0:8768/`
 
-ChatGPT 要求 MCP 地址能够通过公网 HTTPS 访问。请在 8767 端口前部署 Caddy、Nginx、Cloudflare Tunnel、frp 或其他可信反向代理。`examples/` 中提供了一个最小 Caddy 配置示例。
+`0.0.0.0` 是监听地址，不是客户端应填写的连接地址；客户端应使用服务器 IP 或域名。即使尚未配置 HTTPS，两个服务仍会启动，但鉴权并不能加密 Bearer 令牌、OAuth 授权码或管理流量。ChatGPT 要求 MCP 地址能够通过公网 HTTPS 访问。请在 8767 端口前部署 Caddy、Nginx、Cloudflare Tunnel、frp 或其他可信反向代理，并使用 HTTPS 或可信私有网络保护 8768 端口的远程管理。`examples/` 中提供了一个最小 Caddy 配置示例。
 
 ## 连接 ChatGPT OAuth
 
@@ -102,12 +102,15 @@ sudo secure-host-mcp helper
 - 自动生成的所有者令牌拥有全部权限范围；可以在受限的密钥存储中添加其他细粒度令牌。
 - 密钥保存在 `~/.secure-host-mcp/secrets.json`；POSIX 系统要求权限为 `0600`。请备份并保护此文件。
 - 审计日志会有意以明文记录完整命令及 stdout/stderr。日志按日期和大小轮换，并在数据目录中保留 30 天。
-- 可以通过 `setup --allow-lan-http` 开放局域网 HTTP 管理，但登录材料可能被网络窃听；应优先使用 HTTPS 或可信 VPN。
+- MCP 与管理端默认监听全部网络接口。每个管理 API 请求都必须携带所有者 Bearer 令牌，写操作还必须携带页面 CSRF 令牌。
+- 公网 HTTP 不提供加密：鉴权可以控制访问权限，但无法阻止 Bearer 令牌、OAuth 授权码或管理流量被网络窃听。应优先使用 HTTPS 或可信 VPN。
 - 工具注解会要求兼容客户端在破坏性操作前进行确认，但主机端无法证明客户端确实向用户显示了确认界面。
 
 ## 配置
 
 设置 `SECURE_HOST_MCP_HOME` 可以更改数据目录。将 `config.example.json` 中需要的字段复制到自动生成的 `config.json`，然后重启服务。配置与密钥均采用原子写入。
+
+如需仅本机访问，请在配置中明确将 `mcp.host` 和 `admin.host` 都设置为 `127.0.0.1`。升级时会保留已有配置，不会悄悄把旧安装改为公网监听。为兼容旧脚本，仍接受 `setup --allow-lan-http` 参数；新安装已经默认允许远程管理。
 
 可以通过 `auth.externalIssuer` 和 `auth.externalAudience` 启用外部 OIDC。令牌会使用发行方 JWKS 验证，并映射到相同的 MCP 权限范围。
 
