@@ -1,7 +1,6 @@
 name: release
 
 on:
-  pull_request:
   push:
     branches:
       - main
@@ -49,18 +48,6 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-
-  validate:
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: write
-      id-token: write
-    uses: ./.github/workflows/publish.yml
-    with:
-      version: ""
-      publish: false
-      prerelease: false
-      ref: ${{ github.sha }}
 
   publish-tag:
     if: github.event_name == 'push' && github.ref_type == 'tag'
