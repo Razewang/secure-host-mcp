@@ -129,6 +129,10 @@ npm pack --dry-run
 
 ## 发布新版本
 
-`package.json` 是唯一版本来源。更新版本并合并后，推送完全匹配的标签（例如 `v0.1.0`）。GitHub Actions 会测试并打包两个平台、生成校验和与 Release Notes、发布 GitHub Release，并把同一版本发布到 npm。预发行版本使用 npm 的 `next` 标签，正式版本使用 `latest`。
+向 `main` 合并产品改动时，请使用 `fix:`、`feat:`、`feat!:` 等 Conventional Commit 前缀。Release Please 会自动创建或更新 Release PR，其中包含下一版本的 `package.json`、锁文件和 `CHANGELOG.md`。项目版本低于 `1.0.0` 时，`fix:` 与 `feat:` 都生成补丁版本；破坏性改动仍遵循正常的 SemVer 规则。
+
+合并 Release PR 后，Release Please 会创建匹配的 `v<version>` 标签和 GitHub Release。发布工作流随后测试并打包两个平台、生成校验和、向该 Release 上传 Windows/Linux 产物，并向 npm 发布相同版本。Release PR 不会自动合并，因此正式发布始终保留一次人工审核。
+
+完全匹配的显式标签和受保护的手动工作流仍可用于恢复与预发行。预发行版本使用 npm 的 `next` 标签，正式版本使用 `latest`。
 
 npm 发布任务使用 GitHub OIDC Trusted Publishing，不需要在仓库 Secrets 中保存长期 npm 令牌。手动运行工作流时默认只做构建验证，除非明确开启发布，否则不会产生公开版本。
