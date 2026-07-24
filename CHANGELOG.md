@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.4](https://github.com/Razewang/secure-host-mcp/compare/v0.1.3...v0.1.4) (2026-07-24)
+
+
+### Bug Fixes
+
+* serialize atomic config writes ([58ce6e6](https://github.com/Razewang/secure-host-mcp/commit/58ce6e6eb9f72a114240f90312d54c27dda53667))
+* serialize token registry updates ([5fa1cfa](https://github.com/Razewang/secure-host-mcp/commit/5fa1cfa8e463bc25afb5af67cddd4fce75d7f36e))
+* serialize token registry updates ([89963b2](https://github.com/Razewang/secure-host-mcp/commit/89963b2ad52a20a49f351654c6ed9410cd370f6e))
+
 ## [0.1.3](https://github.com/Razewang/secure-host-mcp/compare/v0.1.2...v0.1.3) (2026-07-23)
 
 
