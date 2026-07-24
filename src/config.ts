@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
@@ -58,12 +58,30 @@ export function defaultDataDir(): string {
   return process.env.SECURE_HOST_MCP_HOME ?? path.join(os.homedir(), ".secure-host-mcp");
 }
 
+const atomicWriteQueues = new Map<string, Promise<void>>();
+
 async function atomicWrite(file: string, value: unknown, secret = false): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
-  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: secret ? 0o600 : 0o644 });
-  await rename(temp, file);
-  if (secret && process.platform !== "win32") await chmod(file, 0o600);
+  const target = path.resolve(file);
+  const previous = atomicWriteQueues.get(target) ?? Promise.resolve();
+  const operation = previous.then(async () => {
+    await mkdir(path.dirname(target), { recursive: true });
+    const temp = `${target}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+    try {
+      await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: secret ? 0o600 : 0o644 });
+      await rename(temp, target);
+    } catch (error) {
+      await rm(temp, { force: true }).catch(() => undefined);
+      throw error;
+    }
+    if (secret && process.platform !== "win32") await chmod(target, 0o600);
+  });
+  const tail = operation.then(() => undefined, () => undefined);
+  atomicWriteQueues.set(target, tail);
+  try {
+    await operation;
+  } finally {
+    if (atomicWriteQueues.get(target) === tail) atomicWriteQueues.delete(target);
+  }
 }
 
 export class ConfigStore {

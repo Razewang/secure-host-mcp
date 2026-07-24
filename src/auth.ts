@@ -41,6 +41,7 @@ export class AuthService {
   private secrets!: Secrets;
   private tokenConfig!: TokenConfig;
   private tokenRegistry: ResolvedToken[] = [];
+  private tokenMutationQueue: Promise<void> = Promise.resolve();
   private externalJwksUri?: string;
   constructor(private readonly config: AppConfig, private readonly store: ConfigStore) {}
   async initialize(): Promise<void> {
@@ -94,6 +95,15 @@ export class AuthService {
     this.tokenConfig = config;
     this.tokenRegistry = registry;
   }
+  private async mutateTokenConfig<T>(mutation: (current: TokenConfig) => { next: TokenConfig; result: T }): Promise<T> {
+    const operation = this.tokenMutationQueue.then(async () => {
+      const { next, result } = mutation(this.tokenConfig);
+      await this.persistTokenConfig(next);
+      return result;
+    });
+    this.tokenMutationQueue = operation.then(() => undefined, () => undefined);
+    return await operation;
+  }
 
   async authenticate(token: string): Promise<Principal> {
     const local = this.tokenRegistry.find((record) => record.matches(token));
@@ -135,18 +145,21 @@ export class AuthService {
   async createToken(label: string, scopes: Scope[]): Promise<CreatedToken> {
     const token = opaque();
     const id = randomUUID();
-    const next = {
-      ...this.tokenConfig,
-      connectionTokens: [...this.tokenConfig.connectionTokens, { id, token, label: label.slice(0, 120) || "Agent token", scopes, createdAt: new Date().toISOString() }]
-    };
-    await this.persistTokenConfig(next);
-    return { id, token, scopes };
+    return await this.mutateTokenConfig((current) => ({
+      next: {
+        ...current,
+        connectionTokens: [...current.connectionTokens, { id, token, label: label.slice(0, 120) || "Agent token", scopes, createdAt: new Date().toISOString() }]
+      },
+      result: { id, token, scopes }
+    }));
   }
   async revokeToken(id: string): Promise<void> {
     if (id === "admin") throw new AppError("ADMIN_TOKEN", "rotate the administrator token in tokens.json instead of deleting it");
-    const next = this.tokenConfig.connectionTokens.filter((record) => configuredTokenId(record) !== id);
-    if (next.length === this.tokenConfig.connectionTokens.length) throw new AppError("TOKEN_NOT_FOUND", `unknown token: ${id}`, 404);
-    await this.persistTokenConfig({ ...this.tokenConfig, connectionTokens: next });
+    await this.mutateTokenConfig((current) => {
+      const connectionTokens = current.connectionTokens.filter((record) => configuredTokenId(record) !== id);
+      if (connectionTokens.length === current.connectionTokens.length) throw new AppError("TOKEN_NOT_FOUND", `unknown token: ${id}`, 404);
+      return { next: { ...current, connectionTokens }, result: undefined };
+    });
   }
   baseUrl(): string { return this.config.publicBaseUrl ?? `http://${this.config.mcp.host}:${this.config.mcp.port}`; }
   metadata(): Record<string, unknown> { return { issuer: this.baseUrl(), authorization_endpoint: `${this.baseUrl()}/oauth/authorize`, token_endpoint: `${this.baseUrl()}/oauth/token`, revocation_endpoint: `${this.baseUrl()}/oauth/revoke`, registration_endpoint: `${this.baseUrl()}/oauth/register`, response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"], scopes_supported: [...ALL_SCOPES, "offline_access"] }; }
