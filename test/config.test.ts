@@ -1,11 +1,41 @@
 import { mkdtemp, stat } from "node:fs/promises";
+import type { rename } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore } from "../src/config.js";
 
+const renameControl = vi.hoisted(() => ({
+  enabled: false,
+  calls: 0,
+  signalFirst: undefined as (() => void) | undefined,
+  firstBlocked: Promise.resolve()
+}));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<Record<string, unknown> & { rename: typeof rename }>();
+  return {
+    ...original,
+    rename: async (...args: Parameters<typeof original.rename>) => {
+      renameControl.calls += 1;
+      if (renameControl.enabled && renameControl.calls === 1) {
+        renameControl.signalFirst?.();
+        await renameControl.firstBlocked;
+      }
+      return await original.rename(...args);
+    }
+  };
+});
+
 const dirs: string[] = [];
-afterEach(async () => { const { rm } = await import("node:fs/promises"); await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => {
+  renameControl.enabled = false;
+  renameControl.calls = 0;
+  renameControl.signalFirst = undefined;
+  renameControl.firstBlocked = Promise.resolve();
+  const { rm } = await import("node:fs/promises");
+  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
 
 describe("ConfigStore", () => {
   it("defaults new installations to public listeners", async () => {
@@ -37,5 +67,29 @@ describe("ConfigStore", () => {
     await expect(store.saveTokenConfig({ version: 1, adminToken: "admin", connectionTokens: [
       { id: "admin", token: "connection", label: "reserved id", scopes: [] }
     ] })).rejects.toThrow("token id admin is reserved");
+  });
+
+  it("serializes atomic writes to the same target file", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
+    let releaseFirst!: () => void;
+    let signalFirst!: () => void;
+    const firstRenameStarted = new Promise<void>((resolve) => { signalFirst = resolve; });
+    renameControl.firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    renameControl.signalFirst = signalFirst;
+    renameControl.enabled = true;
+
+    const firstSave = store.saveSecrets({ helperKey: "first", oauth: { clients: [], grants: [] } });
+    await firstRenameStarted;
+    const secondSave = store.saveSecrets({ helperKey: "second", oauth: { clients: [], grants: [] } });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    try {
+      expect(renameControl.calls).toBe(1);
+    } finally {
+      releaseFirst();
+      await Promise.allSettled([firstSave, secondSave]);
+    }
+
+    await expect(Promise.all([firstSave, secondSave])).resolves.toBeDefined();
+    expect((await store.loadSecrets()).helperKey).toBe("second");
   });
 });
