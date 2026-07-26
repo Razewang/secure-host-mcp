@@ -170,7 +170,9 @@ Standalone release builds use `npm run package:standalone`. Cross-platform artif
 
 Use Conventional Commit prefixes such as `fix:`, `feat:`, and `feat!:` when merging product changes into `main`. Release Please automatically creates or updates a Release PR containing the next `package.json`/lockfile version and `CHANGELOG.md`. While the project is below `1.0.0`, both `fix:` and `feat:` produce patch releases; breaking changes retain their normal SemVer meaning.
 
-Merging the Release PR creates the matching `v<version>` tag and GitHub Release. The release workflow then tests and packages Windows x64, Linux x64, and macOS arm64, creates checksums, uploads all three assets to that Release, and publishes the same version to npm. The Release PR is never merged automatically, so publication retains an explicit review gate.
+Merging the Release PR creates the matching `v<version>` tag and GitHub Release. The release workflow then tests and packages Windows x64, Linux x64, and macOS arm64, creates checksums, uploads all three assets to that Release, and publishes the same version to npm.
+
+By default the Release PR waits for a manual merge, keeping an explicit review gate. When the `RELEASE_PLEASE_TOKEN` secret (a fine-grained PAT with contents and pull-request write access) is configured, the workflow enables GitHub auto-merge on the Release PR instead: it merges on its own once the required status checks pass. Auto-merge additionally requires the repository setting "Allow auto-merge" and a `main` branch protection rule with required status checks — without required checks, auto-merge would not wait for CI.
 
 Explicit matching tags and guarded manual workflow runs remain available for recovery and prereleases. Prerelease versions use npm's `next` dist-tag; stable versions use `latest`.
 

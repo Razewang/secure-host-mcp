@@ -48,8 +48,24 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
+          # RELEASE_PLEASE_TOKEN must be a fine-grained PAT (contents + pull
+          # requests read/write). The default GITHUB_TOKEN cannot be used for
+          # auto-merge: merges performed by github-actions[bot] do not trigger
+          # the push workflow that tags and publishes the release.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      - name: Enable auto-merge on the release PR
+        if: ${{ steps.release.outputs.prs_created == 'true' && steps.release.outputs.pr != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "RELEASE_PLEASE_TOKEN secret is not configured; skipping auto-merge." >&2
+            exit 0
+          fi
+          gh pr merge --auto --merge "$PR_NUMBER" --repo "${{ github.repository }}"
 
   validate:
     if: github.event_name == 'pull_request'
