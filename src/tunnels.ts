@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { execFile, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { access, chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -17,9 +17,17 @@ export interface TunnelStatus {
   configPath?: string;
   config?: unknown;
   configError?: string;
+  lifecycle: TunnelLifecycle;
+  /** @deprecated Prefer lifecycle. Retained for existing MCP tunnel_inspect consumers and automation scripts. */
   managedRunning: boolean;
+  /** @deprecated Prefer lifecycle.pid when lifecycle.control is "managed". */
   pid?: number;
 }
+
+export type TunnelLifecycle =
+  | { state: "stopped" }
+  | { state: "running"; control: "managed"; pid?: number }
+  | { state: "running"; control: "external"; source: "windows-service" | "systemd-service"; tokenManaged: boolean };
 
 export interface TunnelInspection {
   cloudflared: TunnelStatus;
@@ -32,6 +40,77 @@ export interface TunnelInstallResult {
   version?: string;
   destination: string;
   sha256: string;
+}
+
+export interface ExternalCloudflaredStatus {
+  source: "windows-service" | "systemd-service";
+  tokenManaged: boolean;
+}
+
+export type ExternalCloudflaredProbe = () => Promise<ExternalCloudflaredStatus | undefined>;
+
+interface WindowsServiceRecord {
+  Name?: unknown;
+  State?: unknown;
+  PathName?: unknown;
+}
+
+function isCloudflaredTunnelCommand(command: string): boolean {
+  return /cloudflared(?:\.exe)?/i.test(command) && /\btunnel\b/i.test(command) && /\brun\b/i.test(command);
+}
+
+function hasTokenArgument(command: string): boolean {
+  return /(?:^|\s)--token(?:-file)?(?:=|\s|$)/i.test(command);
+}
+
+export function parseWindowsCloudflaredService(output: string): ExternalCloudflaredStatus | undefined {
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    const records = Array.isArray(parsed) ? parsed : [parsed];
+    for (const value of records) {
+      if (!value || typeof value !== "object") continue;
+      const record = value as WindowsServiceRecord;
+      const state = typeof record.State === "string" ? record.State : "";
+      const command = typeof record.PathName === "string" ? record.PathName : "";
+      if (state.toLowerCase() === "running" && isCloudflaredTunnelCommand(command)) {
+        return { source: "windows-service", tokenManaged: hasTokenArgument(command) };
+      }
+    }
+  } catch {
+    // An unavailable or unexpected service query must not break tunnel inspection.
+  }
+  return undefined;
+}
+
+export function parseSystemdCloudflaredService(output: string): ExternalCloudflaredStatus | undefined {
+  const fields = Object.fromEntries(output.split(/\r?\n/).flatMap((line) => {
+    const separator = line.indexOf("=");
+    return separator < 0 ? [] : [[line.slice(0, separator), line.slice(separator + 1)]];
+  }));
+  const command = fields.ExecStart ?? "";
+  if (fields.ActiveState !== "active" || !isCloudflaredTunnelCommand(command)) return undefined;
+  return { source: "systemd-service", tokenManaged: hasTokenArgument(command) };
+}
+
+function runServiceProbe(command: string, args: string[]): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile(command, args, { encoding: "utf8", windowsHide: true, timeout: 3000, maxBuffer: 1024 * 1024 }, (error, stdout) => {
+      resolve(error ? undefined : stdout);
+    });
+  });
+}
+
+async function inspectExternalCloudflared(): Promise<ExternalCloudflaredStatus | undefined> {
+  if (process.platform === "win32") {
+    const script = "$services = @(Get-CimInstance Win32_Service -Filter \"Name='Cloudflared'\" | Select-Object Name,State,PathName); ConvertTo-Json -InputObject $services -Compress";
+    const output = await runServiceProbe("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
+    return output === undefined ? undefined : parseWindowsCloudflaredService(output);
+  }
+  if (process.platform === "linux") {
+    const output = await runServiceProbe("systemctl", ["show", "cloudflared.service", "--property=ActiveState", "--property=ExecStart", "--no-pager"]);
+    return output === undefined ? undefined : parseSystemdCloudflaredService(output);
+  }
+  return undefined;
 }
 
 function findExecutable(name: string, localBin?: string): string | undefined {
@@ -47,20 +126,48 @@ function redact(value: unknown): unknown {
 
 export class TunnelManager {
   private readonly processes = new Map<TunnelKind, ChildProcess>();
-  constructor(private readonly config: AppConfig) {}
+  constructor(
+    private readonly config: AppConfig,
+    private readonly externalCloudflaredProbe: ExternalCloudflaredProbe = inspectExternalCloudflared
+  ) {}
 
   async inspect(): Promise<TunnelInspection> {
-    return { cloudflared: await this.inspectOne("cloudflared"), frpc: await this.inspectOne("frpc") };
+    const [cloudflared, frpc] = await Promise.all([this.inspectOne("cloudflared"), this.inspectOne("frpc")]);
+    return { cloudflared, frpc };
+  }
+  private async externalPresence(kind: TunnelKind): Promise<ExternalCloudflaredStatus | undefined> {
+    return kind === "cloudflared" ? await this.externalCloudflaredProbe() : undefined;
   }
   private async inspectOne(kind: TunnelKind): Promise<TunnelStatus> {
     const executable = this.executable(kind); const configPath = kind === "cloudflared" ? await this.cloudflaredConfig() : this.config.tunnels.frpcConfig;
     let parsed: unknown, error: string | undefined;
     if (configPath) try { const raw = await readFile(configPath, "utf8"); parsed = redact(YAML.parse(raw)); } catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
     const version = executable ? spawnSync(executable, ["--version"], { encoding: "utf8", windowsHide: true }).stdout.trim() : undefined;
-    const running = this.processes.get(kind); return { installed: Boolean(executable), executable, version, configPath, config: parsed, configError: error, managedRunning: Boolean(running && running.exitCode === null), pid: running?.pid };
+    const processEntry = this.processes.get(kind);
+    const hasManagedProcess = Boolean(processEntry && processEntry.exitCode === null);
+    const external = hasManagedProcess ? undefined : await this.externalPresence(kind);
+    const lifecycle: TunnelLifecycle = hasManagedProcess
+      ? { state: "running", control: "managed", pid: processEntry?.pid }
+      : external
+        ? { state: "running", control: "external", source: external.source, tokenManaged: external.tokenManaged }
+        : { state: "stopped" };
+    const managedRunning = lifecycle.state === "running" && lifecycle.control === "managed";
+    const managedPid = managedRunning ? lifecycle.pid : undefined;
+    return {
+      installed: Boolean(executable || external),
+      executable,
+      version,
+      configPath,
+      config: parsed,
+      configError: error,
+      lifecycle,
+      managedRunning,
+      pid: managedPid
+    };
   }
   async start(kind: TunnelKind): Promise<Record<string, unknown>> {
     if (this.processes.get(kind)?.exitCode === null) throw new AppError("TUNNEL_RUNNING", `${kind} is already running`);
+    if (await this.externalPresence(kind)) throw new AppError("TUNNEL_EXTERNALLY_MANAGED", `${kind} is already running as a system service; manage it through the operating system`, 409);
     const executable = this.executable(kind); if (!executable) throw new AppError("TUNNEL_NOT_INSTALLED", `${kind} is not installed`, 404);
     const configPath = kind === "cloudflared" ? await this.cloudflaredConfig() : this.config.tunnels.frpcConfig;
     if (!configPath) throw new AppError("TUNNEL_CONFIG_MISSING", `${kind} configuration path not found`);

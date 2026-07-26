@@ -596,6 +596,15 @@ body {
   line-height: 1.5;
 }
 
+.tunnel-management {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.tunnel-management-note {
+  font-size: 12px;
+}
+
 .tunnel-actions {
   display: flex;
   gap: 8px;

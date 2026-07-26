@@ -96,7 +96,7 @@ secure-host-mcp tunnel install cloudflared --yes
 secure-host-mcp tunnel start cloudflared
 ```
 
-检查器会搜索 PATH 和 cloudflared 的标准配置目录。frpc 配置文件位置通过 `tunnels.frpcConfig` 设置，解析后的配置会递归隐藏敏感字段。启动 frpc 前会运行 `frpc verify -c`。`tunnels.proxyUrl` 会以 `HTTP_PROXY`、`HTTPS_PROXY` 和 `ALL_PROXY` 环境变量传给隧道客户端，也支持客户端可识别的 `socks5://` 地址。
+检查器会搜索 PATH 和 cloudflared 的标准配置目录。外部运行状态目前只检测名为 `Cloudflared` 的官方默认 Windows 服务和 Linux 的 `cloudflared.service`；自定义服务名、模板 unit、裸进程以及 macOS launchd 服务不会被检测。frpc 配置文件位置通过 `tunnels.frpcConfig` 设置，解析后的配置会递归隐藏敏感字段。启动 frpc 前会运行 `frpc verify -c`。`tunnels.proxyUrl` 会以 `HTTP_PROXY`、`HTTPS_PROXY` 和 `ALL_PROXY` 环境变量传给隧道客户端，也支持客户端可识别的 `socks5://` 地址。
 
 安装命令必须显式传入 `--yes`。它只下载与当前平台匹配的官方 GitHub Release 文件，要求发布方提供 SHA-256 摘要，校验成功后才安装到应用数据目录；未确认时会直接拒绝安装。
 

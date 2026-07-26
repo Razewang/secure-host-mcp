@@ -51,13 +51,17 @@ describe("HTTP integration", () => {
     const csrf = JSON.parse(csrfLiteral ?? '""') as string;
     expect((await fetch(`http://127.0.0.1:${port}/api/status`)).status).toBe(401);
     const statusResponse = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { authorization: `Bearer ${admin}` } });
-    const status = await statusResponse.json() as { system: Record<string, unknown>; tunnels: { cloudflared: Record<string, unknown> } };
+    const status = await statusResponse.json() as { system: Record<string, unknown>; tunnels: { cloudflared: { managedRunning: unknown; lifecycle: unknown } } };
     expect(statusResponse.status).toBe(200);
     expect(typeof status.system.hostname).toBe("string");
     expect(typeof status.system.cpus).toBe("number");
     expect(typeof status.system.totalMemory).toBe("number");
     expect(typeof status.system.node).toBe("string");
-    expect(status.tunnels.cloudflared).toHaveProperty("managedRunning");
+    expect(typeof status.tunnels.cloudflared.managedRunning).toBe("boolean");
+    expect(status.tunnels.cloudflared.lifecycle).toBeTypeOf("object");
+    const lifecycle = status.tunnels.cloudflared.lifecycle as Record<string, unknown>;
+    expect(["stopped", "running"]).toContain(lifecycle.state);
+    if (lifecycle.state === "running") expect(["managed", "external"]).toContain(lifecycle.control);
     const createResponse = await fetch(`http://127.0.0.1:${port}/api/tokens`, {
       method: "POST",
       headers: { authorization: `Bearer ${admin}`, "content-type": "application/json", "x-csrf-token": csrf },

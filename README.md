@@ -96,7 +96,7 @@ secure-host-mcp tunnel install cloudflared --yes
 secure-host-mcp tunnel start cloudflared
 ```
 
-The inspector searches PATH and standard cloudflared configuration directories. Set `tunnels.frpcConfig` for frpc. Parsed configuration is recursively redacted. `frpc verify -c` runs before launch. `tunnels.proxyUrl` is passed as `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY`, including `socks5://` URLs supported by the selected tunnel client.
+The inspector searches PATH and standard cloudflared configuration directories. External-runtime detection currently covers only the official default Windows service named `Cloudflared` and the Linux `cloudflared.service` unit; custom service names, template units, bare processes, and macOS launchd services are not detected. Set `tunnels.frpcConfig` for frpc. Parsed configuration is recursively redacted. `frpc verify -c` runs before launch. `tunnels.proxyUrl` is passed as `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY`, including `socks5://` URLs supported by the selected tunnel client.
 
 The install command requires `--yes`, downloads only the matching official GitHub Release asset, requires its published SHA-256 digest, verifies it, and installs to the application data directory. Without confirmation it fails closed.
 
