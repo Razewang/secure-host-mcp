@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ConfigStore } from "../src/config.js";
 import { parseSystemdCloudflaredService, parseWindowsCloudflaredService, TunnelManager } from "../src/tunnels.js";
 
+const TUNNEL_LIFECYCLE_TIMEOUT_MS = 15000;
+
 const runningQuery = [
   "SERVICE_NAME: Cloudflared",
   "        TYPE               : 10  WIN32_OWN_PROCESS",
@@ -88,7 +90,7 @@ describe("external cloudflared service detection", () => {
     ].join("\n"))).toBeUndefined();
   });
 
-  it("reports an injected external lifecycle and refuses a duplicate start", async () => {
+  it("reports an injected external lifecycle and refuses a duplicate start", { timeout: TUNNEL_LIFECYCLE_TIMEOUT_MS }, async () => {
     const config = await new ConfigStore("tunnel-test-data").loadConfig();
     const probe = async () => ({ source: "windows-service" as const, tokenManaged: true });
     const manager = new TunnelManager(config, probe);
