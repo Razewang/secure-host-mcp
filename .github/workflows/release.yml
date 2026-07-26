@@ -38,6 +38,7 @@ jobs:
     if: github.event_name == 'push' && github.ref_type == 'branch'
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
       issues: write
       pull-requests: write
@@ -56,15 +57,65 @@ jobs:
           token: ${{ github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      - name: Dispatch checks for the release PR
+        id: release_pr
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+          PRS_JSON: ${{ steps.release.outputs.prs }}
+        shell: bash
+        run: |
+          pr_number="$(
+            jq -r 'if type == "object" then (.number // empty) else empty end' <<<"$PR_JSON" 2>/dev/null ||
+              true
+          )"
+          if [ -z "$pr_number" ]; then
+            pr_number="$(
+              jq -r 'if type == "array" then (.[0].number // empty) else empty end' <<<"${PRS_JSON:-[]}" 2>/dev/null ||
+                true
+            )"
+          fi
+          if [ -z "$pr_number" ]; then
+            pr_number="$(
+              gh pr list \
+                --repo "${{ github.repository }}" \
+                --base "${{ github.ref_name }}" \
+                --state open \
+                --json number,headRefName \
+                --jq '.[] | select(.headRefName | startswith("release-please--branches--")) | .number' |
+                head -n 1
+            )"
+          fi
+          if [ -z "$pr_number" ]; then
+            echo "Release Please reported a PR update, but no open release PR was found." >&2
+            exit 1
+          fi
+
+          head_branch="$(
+            gh pr view "$pr_number" \
+              --repo "${{ github.repository }}" \
+              --json headRefName \
+              --jq .headRefName
+          )"
+          if [ -z "$head_branch" ]; then
+            echo "Release PR #$pr_number has no head branch." >&2
+            exit 1
+          fi
+
+          gh workflow run ci.yml --repo "${{ github.repository }}" --ref "$head_branch"
+          gh workflow run release-pr-validation.yml --repo "${{ github.repository }}" --ref "$head_branch"
+          echo "number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "head_branch=$head_branch" >> "$GITHUB_OUTPUT"
       - name: Enable auto-merge on the release PR
-        if: ${{ steps.release.outputs.prs_created == 'true' && steps.release.outputs.pr != '' }}
+        if: ${{ steps.release_pr.outputs.number != '' }}
         env:
           # A fine-grained PAT (contents + pull requests read/write). Only the
           # auto-merge enablement uses it: the eventual merge is then
           # attributed to the PAT owner, so the push to main triggers this
           # workflow again and release-please tags the release.
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
+          PR_NUMBER: ${{ steps.release_pr.outputs.number }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo "RELEASE_PLEASE_TOKEN secret is not configured; skipping auto-merge." >&2

@@ -6,11 +6,12 @@ import { ConfigStore } from "../src/config.js";
 import { CommandExecutor } from "../src/executor.js";
 
 const dirs: string[] = [];
+const PROCESS_TEST_TIMEOUT_MS = 15000;
 afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 async function executor(): Promise<CommandExecutor> { const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const config = await new ConfigStore(dir).loadConfig(); return new CommandExecutor(config); }
 
 describe("CommandExecutor", () => {
-  it("captures stdout, stderr, and exit code", async () => {
+  it("captures stdout, stderr, and exit code", { timeout: PROCESS_TEST_TIMEOUT_MS }, async () => {
     const run = await executor(); const command = process.platform === "win32" ? "Write-Output hello; [Console]::Error.WriteLine('problem'); exit 7" : "echo hello; echo problem >&2; exit 7";
     const result = await run.execute({ command }); expect(result.exitCode).toBe(7); expect(result.stdout).toContain("hello"); expect(result.stderr).toContain("problem");
   });
