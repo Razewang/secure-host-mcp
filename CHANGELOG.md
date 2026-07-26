@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.7](https://github.com/Razewang/secure-host-mcp/compare/v0.1.6...v0.1.7) (2026-07-26)
+
+
+### Features
+
+* show copyable no-OIDC MCP connection example in admin console ([d6a1cab](https://github.com/Razewang/secure-host-mcp/commit/d6a1cab67b2c7540f80daa8c57e26ffef57b06b8))
+
+
+### Bug Fixes
+
+* raise integration test timeout for slow windows runners ([1def224](https://github.com/Razewang/secure-host-mcp/commit/1def224bf9dc57bdcf88dd054698a12832faba2b))
+
 ## [0.1.6](https://github.com/Razewang/secure-host-mcp/compare/v0.1.5...v0.1.6) (2026-07-26)
 
 
