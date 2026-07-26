@@ -44,7 +44,10 @@ var TEXT = {
     loadingLogs: "正在加载日志列表…", noLogs: "暂无审计日志记录", view: "查看", close: "关闭", modifiedOn: "更新于 {date}",
     logTruncated: "文件较大，仅显示末尾部分内容。完整日志请在上方目录中查看对应文件。",
     filePaths: "文件位置", configFile: "配置文件", dataDirectory: "数据目录", auditDirectory: "审计日志目录",
-    domainWarningText: "OIDC 鉴权需要公网域名：请在配置文件 {path} 中将 publicBaseUrl 设置为 frp 或 Cloudflare 隧道对应的域名（例如 https://mcp.example.com）。未配置时对外颁发的 OAuth/OIDC 元数据将指向本机地址，外部客户端无法完成鉴权。"
+    domainWarningText: "OIDC 鉴权需要公网域名：请在配置文件 {path} 中将 publicBaseUrl 设置为 frp 或 Cloudflare 隧道对应的域名（例如 https://mcp.example.com）。未配置时对外颁发的 OAuth/OIDC 元数据将指向本机地址，外部客户端无法完成鉴权。",
+    mcpExample: "MCP 连接示例", copy: "复制", copied: "已复制到剪贴板", copyFailed: "复制失败，请手动选择复制",
+    mcpExampleDescription: "免 OIDC 鉴权的连接方式：MCP 客户端通过 Authorization 请求头使用连接令牌直接接入 /mcp 端点。将示例中的 {placeholder} 替换为上方创建的真实连接令牌即可使用。",
+    mcpExampleUrlNote: "尚未配置 publicBaseUrl，示例中的外网链接为占位域名。请先在配置文件中设置真实域名，再将该配置交给 MCP 客户端使用。"
   },
   en: {
     authPrompt: "Enter the administrator token to access the control panel", httpWarning: "Use HTTPS or a trusted network. Plain HTTP cannot prevent token interception.", adminToken: "Administrator token",
@@ -69,7 +72,10 @@ var TEXT = {
     loadingLogs: "Loading log files…", noLogs: "No audit log records yet", view: "View", close: "Close", modifiedOn: "Updated {date}",
     logTruncated: "Large file: only the tail is shown. Open the file from the directory above for the full log.",
     filePaths: "File locations", configFile: "Configuration file", dataDirectory: "Data directory", auditDirectory: "Audit log directory",
-    domainWarningText: "OIDC authentication requires a public domain: set publicBaseUrl in {path} to the domain served by your frp or Cloudflare tunnel (e.g. https://mcp.example.com). Without it the published OAuth/OIDC metadata points at the local address and external clients cannot authenticate."
+    domainWarningText: "OIDC authentication requires a public domain: set publicBaseUrl in {path} to the domain served by your frp or Cloudflare tunnel (e.g. https://mcp.example.com). Without it the published OAuth/OIDC metadata points at the local address and external clients cannot authenticate.",
+    mcpExample: "MCP connection example", copy: "Copy", copied: "Copied to clipboard", copyFailed: "Copy failed; select and copy manually",
+    mcpExampleDescription: "Connect without OIDC: MCP clients attach a connection token via the Authorization header to reach the /mcp endpoint directly. Replace {placeholder} in the example with a real connection token created above.",
+    mcpExampleUrlNote: "publicBaseUrl is not configured, so the public URL in this example is a placeholder domain. Set your real domain in the configuration file before handing this config to an MCP client."
   }
 };
 
@@ -85,6 +91,7 @@ function applyLocale() {
   document.querySelectorAll("[data-i18n-placeholder]").forEach(function(element) { element.placeholder = tr(element.dataset.i18nPlaceholder); });
   document.querySelectorAll("[data-i18n-title]").forEach(function(element) { element.title = tr(element.dataset.i18nTitle); });
   document.getElementById("languageToggle").textContent = locale === "zh" ? "EN" : "中文";
+  document.getElementById("mcpExampleDesc").textContent = tr("mcpExampleDescription", { placeholder: MCP_TOKEN_PLACEHOLDER });
 }
 
 /* Theme */
@@ -117,6 +124,7 @@ function connect() {
     renderTunnels();
     renderConfig();
     renderDomainWarning();
+    renderMcpExample();
     loadLogs();
   }).catch(function(err) {
     adminToken = "";
@@ -330,6 +338,7 @@ function tunnelAction(kind, action) {
     renderTunnels();
     renderConfig();
     renderDomainWarning();
+    renderMcpExample();
   }).catch(function(err) {
     showToast(err.message, "error");
     renderTunnels();
@@ -344,6 +353,52 @@ function renderConfig() {
   document.getElementById("configFilePath").textContent = paths.configFile || "—";
   document.getElementById("dataDirPath").textContent = paths.dataDir || "—";
   document.getElementById("auditDirPath").textContent = paths.auditDirectory || "—";
+}
+
+/* MCP connection example */
+var MCP_TOKEN_PLACEHOLDER = "<REPLACE_WITH_CONNECTION_TOKEN>";
+
+function mcpExampleConfig() {
+  var base = statusData && statusData.config && statusData.config.publicBaseUrl;
+  var url = (base ? String(base).replace(/\/+$/, "") : "https://your-domain.example.com") + "/mcp";
+  return JSON.stringify({
+    mcpServers: {
+      "secure-host-mcp": {
+        type: "http",
+        url: url,
+        headers: { "Authorization": "Bearer " + MCP_TOKEN_PLACEHOLDER }
+      }
+    }
+  }, null, 2);
+}
+
+function renderMcpExample() {
+  if (!statusData) return;
+  document.getElementById("mcpExampleBlock").textContent = mcpExampleConfig();
+  var missing = !(statusData.config && statusData.config.publicBaseUrl);
+  document.getElementById("mcpExampleUrlNote").style.display = missing ? "flex" : "none";
+  if (missing) document.getElementById("mcpExampleUrlNoteText").textContent = tr("mcpExampleUrlNote");
+}
+
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  return new Promise(function(resolve, reject) {
+    var area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    try { if (document.execCommand("copy")) resolve(); else reject(new Error("copy rejected")); }
+    catch (error) { reject(error); }
+    finally { area.remove(); }
+  });
+}
+
+function copyMcpExample() {
+  copyText(document.getElementById("mcpExampleBlock").textContent)
+    .then(function() { showToast(tr("copied"), "success"); })
+    .catch(function() { showToast(tr("copyFailed"), "error"); });
 }
 
 /* Domain / OIDC warning */
@@ -440,6 +495,7 @@ document.getElementById("disconnectBtn").addEventListener("click", disconnect);
 document.getElementById("createTokenBtn").addEventListener("click", createToken);
 document.getElementById("refreshTokensBtn").addEventListener("click", loadTokens);
 document.getElementById("refreshLogsBtn").addEventListener("click", loadLogs);
+document.getElementById("copyMcpExampleBtn").addEventListener("click", copyMcpExample);
 document.getElementById("closeLogBtn").addEventListener("click", function() { document.getElementById("logViewerPanel").style.display = "none"; });
 document.getElementById("dialogCancel").addEventListener("click", closeDialog);
 document.getElementById("dialogConfirm").addEventListener("click", dialogAction);
@@ -447,7 +503,7 @@ document.getElementById("languageToggle").addEventListener("click", function() {
   locale = locale === "zh" ? "en" : "zh";
   applyLocale();
   renderScopes();
-  if (statusData) { renderOverview(); renderTunnels(); renderDomainWarning(); }
+  if (statusData) { renderOverview(); renderTunnels(); renderDomainWarning(); renderMcpExample(); }
   if (tokensData.length) renderTokenList();
   if (logsData) renderLogFileList();
 });

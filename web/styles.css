@@ -905,3 +905,10 @@ body {
   overflow-y: auto;
   color: var(--fg);
 }
+
+.panel-note {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0 0 calc(var(--sp-unit) * 1.5);
+}
