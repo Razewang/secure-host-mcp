@@ -104,6 +104,8 @@ jobs:
             platform: windows-x64
           - os: ubuntu-latest
             platform: linux-x64
+          - os: macos-15
+            platform: macos-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -141,6 +143,9 @@ jobs:
       - name: Smoke-test Linux launcher
         if: runner.os == 'Linux'
         run: ./release/secure-host-mcp-linux-x64/secure-host-mcp --version
+      - name: Smoke-test macOS Apple Silicon launcher
+        if: runner.os == 'macOS'
+        run: ./release/secure-host-mcp-darwin-arm64/secure-host-mcp --version
       - name: Create Windows archive
         if: runner.os == 'Windows'
         shell: pwsh
@@ -152,6 +157,11 @@ jobs:
         run: |
           mkdir -p assets
           tar -C release/secure-host-mcp-linux-x64 -czf "assets/secure-host-mcp-${{ needs.preflight.outputs.version }}-linux-x64.tar.gz" .
+      - name: Create macOS Apple Silicon archive
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p assets
+          tar -C release/secure-host-mcp-darwin-arm64 -czf "assets/secure-host-mcp-${{ needs.preflight.outputs.version }}-macos-arm64.tar.gz" .
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.platform }}
@@ -171,7 +181,7 @@ jobs:
         shell: bash
         run: |
           cd assets
-          expected="secure-host-mcp-${{ needs.preflight.outputs.version }}-linux-x64.tar.gz secure-host-mcp-${{ needs.preflight.outputs.version }}-windows-x64.zip"
+          expected="secure-host-mcp-${{ needs.preflight.outputs.version }}-linux-x64.tar.gz secure-host-mcp-${{ needs.preflight.outputs.version }}-macos-arm64.tar.gz secure-host-mcp-${{ needs.preflight.outputs.version }}-windows-x64.zip"
           actual="$(find . -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ' | sed 's/ $//')"
           if [ "$actual" != "$expected" ]; then echo "Unexpected assets: $actual" >&2; exit 1; fi
           sha256sum $expected > SHA256SUMS.txt

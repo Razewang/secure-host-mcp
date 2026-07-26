@@ -37,7 +37,7 @@ var TEXT = {
     tokenCreated: "令牌创建成功", newTokenOnce: "新令牌（仅显示一次，请妥善保存）", agentToken: "Agent token", deleteToken: "删除令牌",
     deleteConfirm: "确定要删除令牌「{label}」吗？此操作不可撤销，使用该令牌的服务将立即失去访问权限。", tokenDeleted: "令牌已删除",
     frpcDescription: "通过 FRP 内网穿透服务暴露本地 MCP 端口，适用于无公网 IP 的环境。", cloudflareDescription: "通过 Cloudflare 零信任隧道安全暴露服务，自带 HTTPS 加密与 DDoS 防护。",
-    version: "版本：{value}", start: "启动", stop: "停止", tunnelChanged: "{kind} 隧道已{action}", started: "启动", stoppedAction: "停止", daysHours: "{days} 天 {hours} 小时",
+    version: "版本：{value}", start: "启动", stop: "停止", systemService: "由系统服务运行", tokenSystemService: "由系统服务以 Token 模式运行", externallyManaged: "此隧道由操作系统管理，请通过系统服务进行启停。", tunnelChanged: "{kind} 隧道已{action}", started: "启动", stoppedAction: "停止", daysHours: "{days} 天 {hours} 小时",
     hoursMinutes: "{hours} 小时 {minutes} 分", minutes: "{minutes} 分钟"
   },
   en: {
@@ -57,7 +57,7 @@ var TEXT = {
     tokenCreated: "Token created", newTokenOnce: "New token (shown once; save it now)", agentToken: "Agent token", deleteToken: "Delete token",
     deleteConfirm: "Delete token “{label}”? This cannot be undone and clients using it will immediately lose access.", tokenDeleted: "Token deleted",
     frpcDescription: "Expose the local MCP port through an FRP service when the host has no public IP.", cloudflareDescription: "Expose the service through a Cloudflare Zero Trust tunnel with HTTPS and DDoS protection.",
-    version: "Version: {value}", start: "Start", stop: "Stop", tunnelChanged: "{kind} tunnel {action}", started: "started", stoppedAction: "stopped", daysHours: "{days}d {hours}h",
+    version: "Version: {value}", start: "Start", stop: "Stop", systemService: "Running as a system service", tokenSystemService: "Running as a token-managed system service", externallyManaged: "This tunnel is managed by the operating system. Start or stop it through the system service.", tunnelChanged: "{kind} tunnel {action}", started: "started", stoppedAction: "stopped", daysHours: "{days}d {hours}h",
     hoursMinutes: "{hours}h {minutes}m", minutes: "{minutes}m"
   }
 };
@@ -175,7 +175,8 @@ function renderOverview() {
   kinds.forEach(function(k) {
     var t = tunnels[k];
     var installed = Boolean(t && t.installed);
-    var running = Boolean(t && t.managedRunning);
+    var lifecycle = tunnelLifecycle(t);
+    var running = lifecycle.state === "running";
     var statusText = !installed ? tr("notInstalled") : (running ? tr("running") : tr("stopped"));
     tHtml += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)"><span style="font-size:14px;font-weight:500">' + esc(k) + '</span><span class="tunnel-status ' + (running ? "running" : "stopped") + '">' + statusText + '</span></div>';
   });
@@ -278,18 +279,26 @@ function renderTunnels() {
   kinds.forEach(function(k) {
     var info = tunnels[k.key] || {};
     var installed = Boolean(info.installed);
-    var running = Boolean(info.managedRunning);
+    var lifecycle = tunnelLifecycle(info);
+    var running = lifecycle.state === "running";
+    var external = running && lifecycle.control === "external";
     var statusText = !installed ? tr("notInstalled") : (running ? tr("running") : tr("stopped"));
+    var management = external ? '<br><span class="tunnel-management">' + tr(lifecycle.tokenManaged ? "tokenSystemService" : "systemService") + '</span><br><span class="tunnel-management-note">' + tr("externallyManaged") + '</span>' : "";
     html += '<div class="tunnel-card">' +
       '<div class="tunnel-card-header"><span class="tunnel-name"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>' + k.name + '</span><span class="tunnel-status ' + (running ? "running" : "stopped") + '" id="tstatus-' + k.key + '">' + statusText + '</span></div>' +
-      '<p class="tunnel-desc">' + k.desc + (info.version ? '<br>' + tr("version", { value: esc(info.version) }) : '') + '</p>' +
-      '<div class="tunnel-actions"><button class="btn btn-success btn-sm tunnel-action" id="tstart-' + k.key + '" data-kind="' + k.key + '" data-action="start" ' + (running || !installed ? "disabled style=\"opacity:0.4;cursor:default\"" : "") + '>' + tr("start") + '</button><button class="btn btn-danger btn-sm tunnel-action" id="tstop-' + k.key + '" data-kind="' + k.key + '" data-action="stop" ' + (!running ? "disabled style=\"opacity:0.4;cursor:default\"" : "") + '>' + tr("stop") + '</button></div></div>';
+      '<p class="tunnel-desc">' + k.desc + (info.version ? '<br>' + tr("version", { value: esc(info.version) }) : '') + management + '</p>' +
+      '<div class="tunnel-actions"><button class="btn btn-success btn-sm tunnel-action" id="tstart-' + k.key + '" data-kind="' + k.key + '" data-action="start" ' + (running || !installed ? "disabled style=\"opacity:0.4;cursor:default\"" : "") + '>' + tr("start") + '</button><button class="btn btn-danger btn-sm tunnel-action" id="tstop-' + k.key + '" data-kind="' + k.key + '" data-action="stop" ' + (!(running && lifecycle.control === "managed") ? "disabled style=\"opacity:0.4;cursor:default\"" : "") + '>' + tr("stop") + '</button></div></div>';
   });
   var grid = document.getElementById("tunnelGrid");
   grid.innerHTML = html;
   grid.querySelectorAll(".tunnel-action").forEach(function(button) {
     button.addEventListener("click", function() { tunnelAction(button.dataset.kind, button.dataset.action); });
   });
+}
+
+function tunnelLifecycle(info) {
+  if (info && info.lifecycle && (info.lifecycle.state === "running" || info.lifecycle.state === "stopped")) return info.lifecycle;
+  return info && info.managedRunning ? { state: "running", control: "managed", pid: info.pid } : { state: "stopped" };
 }
 
 function tunnelAction(kind, action) {
@@ -299,11 +308,12 @@ function tunnelAction(kind, action) {
   if (stopBtn) stopBtn.disabled = true;
   apiFetch("/api/tunnels/" + kind + "/" + action, { method: "POST" }).then(function() {
     showToast(tr("tunnelChanged", { kind: kind, action: action === "start" ? tr("started") : tr("stoppedAction") }), "success");
-    if (statusData && statusData.tunnels && statusData.tunnels[kind]) statusData.tunnels[kind].managedRunning = action === "start";
-    var status = document.getElementById("tstatus-" + kind);
-    if (status) { status.className = "tunnel-status " + (action === "start" ? "running" : "stopped"); status.textContent = action === "start" ? tr("running") : tr("stopped"); }
-    if (startBtn) { startBtn.disabled = action === "start"; startBtn.style.opacity = action === "start" ? "0.4" : "1"; }
-    if (stopBtn) { stopBtn.disabled = action !== "start"; stopBtn.style.opacity = action !== "start" ? "0.4" : "1"; }
+    return apiFetch("/api/status");
+  }).then(function(data) {
+    statusData = data;
+    renderOverview();
+    renderTunnels();
+    renderConfig();
   }).catch(function(err) {
     showToast(err.message, "error");
     renderTunnels();
