@@ -6,6 +6,7 @@
   <a href="https://www.npmjs.com/package/secure-host-mcp"><img src="https://img.shields.io/npm/v/secure-host-mcp?logo=npm" alt="npm"></a>
   <img src="https://img.shields.io/badge/Windows-x64-0078D4?logo=windows" alt="Windows x64">
   <img src="https://img.shields.io/badge/Linux-x64-FCC624?logo=linux&logoColor=000000" alt="Linux x64">
+  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon-000000?logo=apple" alt="macOS Apple Silicon">
   <img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 20+">
   <img src="https://img.shields.io/badge/MCP-Streamable%20HTTP-5A45FF" alt="MCP Streamable HTTP">
   <a href="https://github.com/Razewang/secure-host-mcp/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
@@ -15,7 +16,7 @@
   <a href="README.md">English</a> | 简体中文
 </p>
 
-Secure Host MCP 通过 Streamable HTTP 将 Windows 或 Linux 主机终端开放给远程 MCP 客户端。它有意提供接近本机终端的强大能力：默认管理员令牌可以执行服务账户有权运行的任何命令、检查或启动已配置的隧道，以及请求提权操作。
+Secure Host MCP 通过 Streamable HTTP 将 Windows、Linux 或 macOS 主机终端开放给远程 MCP 客户端。它有意提供接近本机终端的强大能力：默认管理员令牌可以执行服务账户有权运行的任何命令、检查或启动已配置的隧道，以及请求提权操作。
 
 ## 下载独立发行包
 
@@ -23,6 +24,7 @@ Secure Host MCP 通过 Streamable HTTP 将 Windows 或 Linux 主机终端开放�
 
 - Windows x64：解压 ZIP 后双击 `secure-host-mcp.exe`。首次运行时，控制台向导会询问公网 IP 与 Cloudflare Tunnel、配置管理员令牌、显示连接地址，然后启动 MCP 与管理服务。
 - Linux x64：解压 `tar.gz` 后运行 `./secure-host-mcp launch`，完成相同的首次初始化与启动流程。
+- macOS Apple Silicon：解压 `tar.gz` 后运行 `./secure-host-mcp launch`。当前仅提供 arm64 Mac 版本。
 
 这些压缩包不需要另外安装 Node.js。Windows EXE 暂未进行代码签名，因此 Microsoft Defender SmartScreen 可能显示“未知发布者”警告。运行前请使用 `SHA256SUMS.txt` 校验下载文件。
 
@@ -32,7 +34,7 @@ Secure Host MCP 通过 Streamable HTTP 将 Windows 或 Linux 主机终端开放�
 ```
 
 ```bash
-# Linux
+# Linux / macOS
 sha256sum -c SHA256SUMS.txt --ignore-missing
 ```
 
@@ -168,7 +170,7 @@ npm pack --dry-run
 
 向 `main` 合并产品改动时，请使用 `fix:`、`feat:`、`feat!:` 等 Conventional Commit 前缀。Release Please 会自动创建或更新 Release PR，其中包含下一版本的 `package.json`、锁文件和 `CHANGELOG.md`。项目版本低于 `1.0.0` 时，`fix:` 与 `feat:` 都生成补丁版本；破坏性改动仍遵循正常的 SemVer 规则。
 
-合并 Release PR 后，Release Please 会创建匹配的 `v<version>` 标签和 GitHub Release。发布工作流随后测试并打包两个平台、生成校验和、向该 Release 上传 Windows/Linux 产物，并向 npm 发布相同版本。Release PR 不会自动合并，因此正式发布始终保留一次人工审核。
+合并 Release PR 后，Release Please 会创建匹配的 `v<version>` 标签和 GitHub Release。发布工作流随后测试并打包 Windows x64、Linux x64 与 macOS arm64，生成校验和、向该 Release 上传三个平台产物，并向 npm 发布相同版本。Release PR 不会自动合并，因此正式发布始终保留一次人工审核。
 
 完全匹配的显式标签和受保护的手动工作流仍可用于恢复与预发行。预发行版本使用 npm 的 `next` 标签，正式版本使用 `latest`。
 

@@ -6,6 +6,7 @@
   <a href="https://www.npmjs.com/package/secure-host-mcp"><img src="https://img.shields.io/npm/v/secure-host-mcp?logo=npm" alt="npm"></a>
   <img src="https://img.shields.io/badge/Windows-x64-0078D4?logo=windows" alt="Windows x64">
   <img src="https://img.shields.io/badge/Linux-x64-FCC624?logo=linux&logoColor=000000" alt="Linux x64">
+  <img src="https://img.shields.io/badge/macOS-Apple%20Silicon-000000?logo=apple" alt="macOS Apple Silicon">
   <img src="https://img.shields.io/badge/Node.js-20%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 20+">
   <img src="https://img.shields.io/badge/MCP-Streamable%20HTTP-5A45FF" alt="MCP Streamable HTTP">
   <a href="https://github.com/Razewang/secure-host-mcp/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
@@ -15,7 +16,7 @@
   English | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-Secure Host MCP exposes a Windows or Linux host terminal to remote MCP clients through Streamable HTTP. It is intentionally powerful: the default administrator token can execute any command available to the service account, inspect or launch configured tunnels, and request privileged operations.
+Secure Host MCP exposes a Windows, Linux, or macOS host terminal to remote MCP clients through Streamable HTTP. It is intentionally powerful: the default administrator token can execute any command available to the service account, inspect or launch configured tunnels, and request privileged operations.
 
 ## Download a standalone release
 
@@ -23,6 +24,7 @@ Download the archive for your platform from [GitHub Releases](https://github.com
 
 - Windows x64: extract the ZIP and double-click `secure-host-mcp.exe`. On first launch the console wizard asks about public-IP and Cloudflare Tunnel access, configures the administrator token, displays the connection URLs, and starts both servers.
 - Linux x64: extract the `tar.gz` archive and run `./secure-host-mcp launch` for the same first-run initialization and startup behavior.
+- macOS Apple Silicon: extract the `tar.gz` archive and run `./secure-host-mcp launch`. The archive currently targets arm64 Macs only.
 
 No separate Node.js installation is required for these archives. The Windows executable is not code-signed yet, so Microsoft Defender SmartScreen may display an unknown-publisher warning. Verify the download against `SHA256SUMS.txt` before running it.
 
@@ -32,7 +34,7 @@ No separate Node.js installation is required for these archives. The Windows exe
 ```
 
 ```bash
-# Linux
+# Linux / macOS
 sha256sum -c SHA256SUMS.txt --ignore-missing
 ```
 
@@ -168,7 +170,7 @@ Standalone release builds use `npm run package:standalone`. Cross-platform artif
 
 Use Conventional Commit prefixes such as `fix:`, `feat:`, and `feat!:` when merging product changes into `main`. Release Please automatically creates or updates a Release PR containing the next `package.json`/lockfile version and `CHANGELOG.md`. While the project is below `1.0.0`, both `fix:` and `feat:` produce patch releases; breaking changes retain their normal SemVer meaning.
 
-Merging the Release PR creates the matching `v<version>` tag and GitHub Release. The release workflow then tests and packages both platforms, creates checksums, uploads the Windows/Linux assets to that Release, and publishes the same version to npm. The Release PR is never merged automatically, so publication retains an explicit review gate.
+Merging the Release PR creates the matching `v<version>` tag and GitHub Release. The release workflow then tests and packages Windows x64, Linux x64, and macOS arm64, creates checksums, uploads all three assets to that Release, and publishes the same version to npm. The Release PR is never merged automatically, so publication retains an explicit review gate.
 
 Explicit matching tags and guarded manual workflow runs remain available for recovery and prereleases. Prerelease versions use npm's `next` dist-tag; stable versions use `latest`.
 
