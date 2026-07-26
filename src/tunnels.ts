@@ -49,11 +49,8 @@ export interface ExternalCloudflaredStatus {
 
 export type ExternalCloudflaredProbe = () => Promise<ExternalCloudflaredStatus | undefined>;
 
-interface WindowsServiceRecord {
-  Name?: unknown;
-  State?: unknown;
-  PathName?: unknown;
-}
+const EXTERNAL_PROBE_TIMEOUT_MS = 1500;
+const EXTERNAL_PROBE_CACHE_MS = 2000;
 
 function isCloudflaredTunnelCommand(command: string): boolean {
   return /cloudflared(?:\.exe)?/i.test(command) && /\btunnel\b/i.test(command) && /\brun\b/i.test(command);
@@ -63,23 +60,13 @@ function hasTokenArgument(command: string): boolean {
   return /(?:^|\s)--token(?:-file)?(?:=|\s|$)/i.test(command);
 }
 
-export function parseWindowsCloudflaredService(output: string): ExternalCloudflaredStatus | undefined {
-  try {
-    const parsed = JSON.parse(output) as unknown;
-    const records = Array.isArray(parsed) ? parsed : [parsed];
-    for (const value of records) {
-      if (!value || typeof value !== "object") continue;
-      const record = value as WindowsServiceRecord;
-      const state = typeof record.State === "string" ? record.State : "";
-      const command = typeof record.PathName === "string" ? record.PathName : "";
-      if (state.toLowerCase() === "running" && isCloudflaredTunnelCommand(command)) {
-        return { source: "windows-service", tokenManaged: hasTokenArgument(command) };
-      }
-    }
-  } catch {
-    // An unavailable or unexpected service query must not break tunnel inspection.
-  }
-  return undefined;
+/** Parse `sc.exe query Cloudflared` + `sc.exe qc Cloudflared` output. Avoids PowerShell cold-start on Windows. */
+export function parseWindowsCloudflaredService(queryOutput: string, configOutput: string): ExternalCloudflaredStatus | undefined {
+  if (!/^\s*STATE\s*:\s*\d+\s+RUNNING\b/im.test(queryOutput)) return undefined;
+  const binaryLine = configOutput.match(/^\s*BINARY_PATH_NAME\s*:\s*(.+)\s*$/im);
+  const command = binaryLine?.[1]?.trim() ?? "";
+  if (!isCloudflaredTunnelCommand(command)) return undefined;
+  return { source: "windows-service", tokenManaged: hasTokenArgument(command) };
 }
 
 export function parseSystemdCloudflaredService(output: string): ExternalCloudflaredStatus | undefined {
@@ -94,23 +81,45 @@ export function parseSystemdCloudflaredService(output: string): ExternalCloudfla
 
 function runServiceProbe(command: string, args: string[]): Promise<string | undefined> {
   return new Promise((resolve) => {
-    execFile(command, args, { encoding: "utf8", windowsHide: true, timeout: 3000, maxBuffer: 1024 * 1024 }, (error, stdout) => {
+    execFile(command, args, { encoding: "utf8", windowsHide: true, timeout: EXTERNAL_PROBE_TIMEOUT_MS, maxBuffer: 1024 * 1024 }, (error, stdout) => {
       resolve(error ? undefined : stdout);
     });
   });
 }
 
-async function inspectExternalCloudflared(): Promise<ExternalCloudflaredStatus | undefined> {
+let externalProbeCache: { expiresAt: number; value: ExternalCloudflaredStatus | undefined } | undefined;
+let externalProbeInFlight: Promise<ExternalCloudflaredStatus | undefined> | undefined;
+
+async function probeExternalCloudflaredUncached(): Promise<ExternalCloudflaredStatus | undefined> {
   if (process.platform === "win32") {
-    const script = "$services = @(Get-CimInstance Win32_Service -Filter \"Name='Cloudflared'\" | Select-Object Name,State,PathName); ConvertTo-Json -InputObject $services -Compress";
-    const output = await runServiceProbe("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
-    return output === undefined ? undefined : parseWindowsCloudflaredService(output);
+    // sc.exe is far cheaper than spinning PowerShell + CIM on every /api/status call.
+    const [queryOutput, configOutput] = await Promise.all([
+      runServiceProbe("sc.exe", ["query", "Cloudflared"]),
+      runServiceProbe("sc.exe", ["qc", "Cloudflared"])
+    ]);
+    if (queryOutput === undefined || configOutput === undefined) return undefined;
+    return parseWindowsCloudflaredService(queryOutput, configOutput);
   }
   if (process.platform === "linux") {
     const output = await runServiceProbe("systemctl", ["show", "cloudflared.service", "--property=ActiveState", "--property=ExecStart", "--no-pager"]);
     return output === undefined ? undefined : parseSystemdCloudflaredService(output);
   }
   return undefined;
+}
+
+async function inspectExternalCloudflared(): Promise<ExternalCloudflaredStatus | undefined> {
+  const now = Date.now();
+  if (externalProbeCache && externalProbeCache.expiresAt > now) return externalProbeCache.value;
+  if (externalProbeInFlight) return externalProbeInFlight;
+  externalProbeInFlight = probeExternalCloudflaredUncached()
+    .then((value) => {
+      externalProbeCache = { expiresAt: Date.now() + EXTERNAL_PROBE_CACHE_MS, value };
+      return value;
+    })
+    .finally(() => {
+      externalProbeInFlight = undefined;
+    });
+  return externalProbeInFlight;
 }
 
 function findExecutable(name: string, localBin?: string): string | undefined {
