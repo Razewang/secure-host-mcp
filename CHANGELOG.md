@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.9](https://github.com/Razewang/secure-host-mcp/compare/v0.1.8...v0.1.9) (2026-07-26)
+
+
+### Bug Fixes
+
+* **ci:** approve release PR checks ([6eb49b5](https://github.com/Razewang/secure-host-mcp/commit/6eb49b5f0e4f742cbe083f2209c4e616c9628564))
+* **ci:** approve Release PR checks before auto-merge ([e517537](https://github.com/Razewang/secure-host-mcp/commit/e517537813263aa7dfb6fc247c20348034f5bc27))
+
 ## [0.1.8](https://github.com/Razewang/secure-host-mcp/compare/v0.1.7...v0.1.8) (2026-07-26)
 
 
