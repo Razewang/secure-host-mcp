@@ -176,7 +176,9 @@ npm pack --dry-run
 
 向 `main` 合并产品改动时，请使用 `fix:`、`feat:`、`feat!:` 等 Conventional Commit 前缀。Release Please 会自动创建或更新 Release PR，其中包含下一版本的 `package.json`、锁文件和 `CHANGELOG.md`。项目版本低于 `1.0.0` 时，`fix:` 与 `feat:` 都生成补丁版本；破坏性改动仍遵循正常的 SemVer 规则。
 
-合并 Release PR 后，Release Please 会创建匹配的 `v<version>` 标签和 GitHub Release。发布工作流随后测试并打包 Windows x64、Linux x64 与 macOS arm64，生成校验和、向该 Release 上传三个平台产物，并向 npm 发布相同版本。Release PR 不会自动合并，因此正式发布始终保留一次人工审核。
+合并 Release PR 后，Release Please 会创建匹配的 `v<version>` 标签和 GitHub Release。发布工作流随后测试并打包 Windows x64、Linux x64 与 macOS arm64，生成校验和、向该 Release 上传三个平台产物，并向 npm 发布相同版本。
+
+默认情况下 Release PR 需要人工合并，保留一次发布前审核。配置 `RELEASE_PLEASE_TOKEN` 密钥（具备 contents 与 pull request 读写权限的细粒度 PAT）后，工作流会改为在 Release PR 上开启 GitHub 自动合并：所有必需状态检查通过后即自动合并并发布。启用自动合并还需要在仓库设置中打开“Allow auto-merge”，并为 `main` 分支配置带必需状态检查的保护规则——没有必需检查时，自动合并不会等待 CI。
 
 完全匹配的显式标签和受保护的手动工作流仍可用于恢复与预发行。预发行版本使用 npm 的 `next` 标签，正式版本使用 `latest`。
 
