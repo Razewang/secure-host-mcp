@@ -49,6 +49,12 @@ secure-host-mcp doctor
 secure-host-mcp start
 ```
 
+> **首次配置引导：第一条命令是 `setup`，不是 `start`。**
+>
+> 全新安装还没有管理员令牌。`setup` 负责创建令牌（写入 `tokens.json`）、生成基础配置并打印连接地址；`start` 只负责启动已完成配置的服务——在从未运行过 `setup` 的机器上，它会立即报错退出：`ADMIN_TOKEN_MISSING: Run setup before starting the server`。
+>
+> 因此首次使用的完整流程是：**1.** `setup`（每台机器只需一次）→ **2.** `doctor`（可选的健康检查）→ **3.** `start`（此后每次启动）。如果希望一条命令完成，可以使用 `secure-host-mcp launch`：它会在需要时自动执行首次配置再启动服务，与独立发行包中双击 `secure-host-mcp.exe` 的行为一致。
+
 在交互式终端中进行全新安装时，`setup` 会：
 
 1. 询问设备是否拥有可直接访问的公网 IP，并尽可能通过 Cloudflare trace 接口自动检测。

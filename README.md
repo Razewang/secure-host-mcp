@@ -49,6 +49,21 @@ secure-host-mcp doctor
 secure-host-mcp start
 ```
 
+> **First run: the required first command is `setup`, not `start`.**
+>
+> A fresh installation has no administrator token yet. `setup` creates it
+> (written to `tokens.json`), records the base configuration, and prints your
+> connection URLs. `start` only launches servers that are already configured —
+> on a machine that has never run `setup` it exits immediately with
+> `ADMIN_TOKEN_MISSING: Run setup before starting the server`.
+>
+> The first-run flow is therefore: **1.** `setup` (once per machine) →
+> **2.** `doctor` (optional health check) → **3.** `start` (every launch
+> afterwards). If you prefer a single command, `secure-host-mcp launch` runs
+> the first-time setup automatically when needed and then starts the servers —
+> the same behavior as double-clicking `secure-host-mcp.exe` from the
+> standalone package.
+
 When run in an interactive terminal for a new installation, `setup`:
 
 1. Asks whether the device has a directly reachable public IP and detects it through Cloudflare's trace endpoint when possible.
