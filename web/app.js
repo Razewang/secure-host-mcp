@@ -7,6 +7,7 @@ var adminToken = "";
 var csrfToken = bootstrap.csrfToken;
 var statusData = null;
 var tokensData = [];
+var logsData = null;
 var pendingDialogAction = null;
 var locale = navigator.language && navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
 
@@ -38,7 +39,12 @@ var TEXT = {
     deleteConfirm: "确定要删除令牌「{label}」吗？此操作不可撤销，使用该令牌的服务将立即失去访问权限。", tokenDeleted: "令牌已删除",
     frpcDescription: "通过 FRP 内网穿透服务暴露本地 MCP 端口，适用于无公网 IP 的环境。", cloudflareDescription: "通过 Cloudflare 零信任隧道安全暴露服务，自带 HTTPS 加密与 DDoS 防护。",
     version: "版本：{value}", start: "启动", stop: "停止", systemService: "由系统服务运行", tokenSystemService: "由系统服务以 Token 模式运行", externallyManaged: "此隧道由操作系统管理，请通过系统服务进行启停。", tunnelChanged: "{kind} 隧道已{action}", started: "启动", stoppedAction: "停止", daysHours: "{days} 天 {hours} 小时",
-    hoursMinutes: "{hours} 小时 {minutes} 分", minutes: "{minutes} 分钟"
+    hoursMinutes: "{hours} 小时 {minutes} 分", minutes: "{minutes} 分钟",
+    logs: "日志", auditLogs: "审计日志", logsDescription: "命令执行与管理操作的审计记录", logLocation: "日志文件位置", logFiles: "日志文件",
+    loadingLogs: "正在加载日志列表…", noLogs: "暂无审计日志记录", view: "查看", close: "关闭", modifiedOn: "更新于 {date}",
+    logTruncated: "文件较大，仅显示末尾部分内容。完整日志请在上方目录中查看对应文件。",
+    filePaths: "文件位置", configFile: "配置文件", dataDirectory: "数据目录", auditDirectory: "审计日志目录",
+    domainWarningText: "OIDC 鉴权需要公网域名：请在配置文件 {path} 中将 publicBaseUrl 设置为 frp 或 Cloudflare 隧道对应的域名（例如 https://mcp.example.com）。未配置时对外颁发的 OAuth/OIDC 元数据将指向本机地址，外部客户端无法完成鉴权。"
   },
   en: {
     authPrompt: "Enter the administrator token to access the control panel", httpWarning: "Use HTTPS or a trusted network. Plain HTTP cannot prevent token interception.", adminToken: "Administrator token",
@@ -58,7 +64,12 @@ var TEXT = {
     deleteConfirm: "Delete token “{label}”? This cannot be undone and clients using it will immediately lose access.", tokenDeleted: "Token deleted",
     frpcDescription: "Expose the local MCP port through an FRP service when the host has no public IP.", cloudflareDescription: "Expose the service through a Cloudflare Zero Trust tunnel with HTTPS and DDoS protection.",
     version: "Version: {value}", start: "Start", stop: "Stop", systemService: "Running as a system service", tokenSystemService: "Running as a token-managed system service", externallyManaged: "This tunnel is managed by the operating system. Start or stop it through the system service.", tunnelChanged: "{kind} tunnel {action}", started: "started", stoppedAction: "stopped", daysHours: "{days}d {hours}h",
-    hoursMinutes: "{hours}h {minutes}m", minutes: "{minutes}m"
+    hoursMinutes: "{hours}h {minutes}m", minutes: "{minutes}m",
+    logs: "Logs", auditLogs: "Audit logs", logsDescription: "Audit records of command execution and administration actions", logLocation: "Log file location", logFiles: "Log files",
+    loadingLogs: "Loading log files…", noLogs: "No audit log records yet", view: "View", close: "Close", modifiedOn: "Updated {date}",
+    logTruncated: "Large file: only the tail is shown. Open the file from the directory above for the full log.",
+    filePaths: "File locations", configFile: "Configuration file", dataDirectory: "Data directory", auditDirectory: "Audit log directory",
+    domainWarningText: "OIDC authentication requires a public domain: set publicBaseUrl in {path} to the domain served by your frp or Cloudflare tunnel (e.g. https://mcp.example.com). Without it the published OAuth/OIDC metadata points at the local address and external clients cannot authenticate."
   }
 };
 
@@ -105,6 +116,8 @@ function connect() {
     loadTokens();
     renderTunnels();
     renderConfig();
+    renderDomainWarning();
+    loadLogs();
   }).catch(function(err) {
     adminToken = "";
     document.getElementById("authError").textContent = err.message || tr("authFailed");
@@ -118,6 +131,8 @@ function disconnect() {
   adminToken = "";
   statusData = null;
   tokensData = [];
+  logsData = null;
+  document.getElementById("logViewerPanel").style.display = "none";
   document.getElementById("app").classList.remove("active");
   document.getElementById("authGate").style.display = "flex";
   document.getElementById("tokenInput").value = "";
@@ -314,6 +329,7 @@ function tunnelAction(kind, action) {
     renderOverview();
     renderTunnels();
     renderConfig();
+    renderDomainWarning();
   }).catch(function(err) {
     showToast(err.message, "error");
     renderTunnels();
@@ -324,6 +340,69 @@ function tunnelAction(kind, action) {
 function renderConfig() {
   if (!statusData || !statusData.config) return;
   document.getElementById("configBlock").textContent = JSON.stringify(statusData.config, null, 2);
+  var paths = statusData.paths || {};
+  document.getElementById("configFilePath").textContent = paths.configFile || "—";
+  document.getElementById("dataDirPath").textContent = paths.dataDir || "—";
+  document.getElementById("auditDirPath").textContent = paths.auditDirectory || "—";
+}
+
+/* Domain / OIDC warning */
+function renderDomainWarning() {
+  if (!statusData || !statusData.config) return;
+  var missing = !statusData.config.publicBaseUrl;
+  var text = missing ? tr("domainWarningText", { path: (statusData.paths && statusData.paths.configFile) || "config.json" }) : "";
+  [["domainWarning", "domainWarningText"], ["configDomainWarning", "configDomainWarningText"]].forEach(function(pair) {
+    var banner = document.getElementById(pair[0]);
+    if (!banner) return;
+    banner.style.display = missing ? "flex" : "none";
+    document.getElementById(pair[1]).textContent = text;
+  });
+}
+
+/* Logs */
+function loadLogs() {
+  document.getElementById("logsLoading").style.display = "flex";
+  document.getElementById("logFileList").style.display = "none";
+  document.getElementById("logsEmpty").style.display = "none";
+  apiFetch("/api/logs").then(function(data) {
+    logsData = data || { directory: "", files: [] };
+    document.getElementById("logDirectory").textContent = logsData.directory || "—";
+    renderLogFileList();
+  }).catch(function(err) {
+    showToast(err.message, "error");
+  }).finally(function() {
+    document.getElementById("logsLoading").style.display = "none";
+  });
+}
+
+function renderLogFileList() {
+  if (!logsData) return;
+  var list = document.getElementById("logFileList");
+  var files = logsData.files || [];
+  if (files.length === 0) {
+    list.style.display = "none";
+    document.getElementById("logsEmpty").style.display = "block";
+    return;
+  }
+  document.getElementById("logsEmpty").style.display = "none";
+  list.style.display = "block";
+  var html = "";
+  files.forEach(function(f) {
+    html += '<li class="log-file-item"><div class="log-file-info"><span class="log-file-name">' + esc(f.name) + '</span><span class="log-file-meta">' + formatBytes(f.size) + ' · ' + tr("modifiedOn", { date: new Date(f.modifiedAt).toLocaleString(locale === "zh" ? "zh-CN" : "en") }) + '</span></div><button class="btn btn-ghost btn-sm log-view" data-log-name="' + esc(f.name) + '">' + tr("view") + '</button></li>';
+  });
+  list.innerHTML = html;
+  list.querySelectorAll(".log-view").forEach(function(button) {
+    button.addEventListener("click", function() { viewLog(button.dataset.logName); });
+  });
+}
+
+function viewLog(name) {
+  apiFetch("/api/logs/" + encodeURIComponent(name)).then(function(data) {
+    document.getElementById("logViewerTitle").textContent = data.name;
+    document.getElementById("logTruncatedNote").style.display = data.truncated ? "block" : "none";
+    document.getElementById("logContent").textContent = data.content || "";
+    document.getElementById("logViewerPanel").style.display = "block";
+  }).catch(function(err) { showToast(err.message, "error"); });
 }
 
 /* Utilities */
@@ -360,14 +439,17 @@ document.getElementById("themeToggle").addEventListener("click", toggleTheme);
 document.getElementById("disconnectBtn").addEventListener("click", disconnect);
 document.getElementById("createTokenBtn").addEventListener("click", createToken);
 document.getElementById("refreshTokensBtn").addEventListener("click", loadTokens);
+document.getElementById("refreshLogsBtn").addEventListener("click", loadLogs);
+document.getElementById("closeLogBtn").addEventListener("click", function() { document.getElementById("logViewerPanel").style.display = "none"; });
 document.getElementById("dialogCancel").addEventListener("click", closeDialog);
 document.getElementById("dialogConfirm").addEventListener("click", dialogAction);
 document.getElementById("languageToggle").addEventListener("click", function() {
   locale = locale === "zh" ? "en" : "zh";
   applyLocale();
   renderScopes();
-  if (statusData) { renderOverview(); renderTunnels(); }
+  if (statusData) { renderOverview(); renderTunnels(); renderDomainWarning(); }
   if (tokensData.length) renderTokenList();
+  if (logsData) renderLogFileList();
 });
 document.querySelectorAll("[data-section]").forEach(function(button) {
   button.addEventListener("click", function() { switchSection(button.dataset.section); });
