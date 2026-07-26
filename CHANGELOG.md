@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6](https://github.com/Razewang/secure-host-mcp/compare/v0.1.5...v0.1.6) (2026-07-26)
+
+
+### Features
+
+* add audit log viewer and publicBaseUrl OIDC warning to admin console ([7569646](https://github.com/Razewang/secure-host-mcp/commit/7569646d221228a02478824a7f20d470f53d76ac))
+* add audit log viewer and publicBaseUrl OIDC warning to admin console ([14aa39b](https://github.com/Razewang/secure-host-mcp/commit/14aa39b061c7f82f5a8147a28dc0672492e0fe3e))
+
 ## [0.1.5](https://github.com/Razewang/secure-host-mcp/compare/v0.1.4...v0.1.5) (2026-07-26)
 
 
