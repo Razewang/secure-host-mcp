@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/Razewang/secure-host-mcp/compare/v0.1.7...v0.1.8) (2026-07-26)
+
+
+### Bug Fixes
+
+* **ci:** dispatch release PR validation ([53302d2](https://github.com/Razewang/secure-host-mcp/commit/53302d27150eabf9d1a375c3baac9ac813704fe5))
+
 ## [0.1.7](https://github.com/Razewang/secure-host-mcp/compare/v0.1.6...v0.1.7) (2026-07-26)
 
 
