@@ -187,7 +187,7 @@ Use Conventional Commit prefixes such as `fix:`, `feat:`, and `feat!:` when merg
 
 Merging the Release PR creates the matching `v<version>` tag and GitHub Release. The release workflow then tests and packages Windows x64, Linux x64, and macOS arm64, creates checksums, uploads all three assets to that Release, and publishes the same version to npm.
 
-By default the Release PR waits for a manual merge, keeping an explicit review gate. When the `RELEASE_PLEASE_TOKEN` secret (a fine-grained PAT with contents and pull-request write access) is configured, the workflow enables GitHub auto-merge on the Release PR instead: it merges on its own once the required status checks pass. Auto-merge additionally requires the repository setting "Allow auto-merge" and a `main` branch protection rule with required status checks — without required checks, auto-merge would not wait for CI.
+By default the Release PR waits for a manual merge, keeping an explicit review gate. When the `RELEASE_PLEASE_TOKEN` secret (a fine-grained PAT with Actions, contents, and pull-request read/write access) is configured, the workflow approves the validation runs that GitHub holds for a `GITHUB_TOKEN`-created Release PR and then enables GitHub auto-merge. The PR merges on its own once the required status checks pass. Auto-merge additionally requires the repository setting "Allow auto-merge" and a `main` branch protection rule with required status checks — without required checks, auto-merge would not wait for CI.
 
 Explicit matching tags and guarded manual workflow runs remain available for recovery and prereleases. Prerelease versions use npm's `next` dist-tag; stable versions use `latest`.
 

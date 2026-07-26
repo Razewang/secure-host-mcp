@@ -38,7 +38,6 @@ jobs:
     if: github.event_name == 'push' && github.ref_type == 'branch'
     runs-on: ubuntu-latest
     permissions:
-      actions: write
       contents: write
       issues: write
       pull-requests: write
@@ -57,7 +56,7 @@ jobs:
           token: ${{ github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-      - name: Dispatch checks for the release PR
+      - name: Resolve the release PR
         id: release_pr
         if: ${{ steps.release.outputs.prs_created == 'true' }}
         env:
@@ -92,35 +91,75 @@ jobs:
             exit 1
           fi
 
-          head_branch="$(
+          head_sha="$(
             gh pr view "$pr_number" \
               --repo "${{ github.repository }}" \
-              --json headRefName \
-              --jq .headRefName
+              --json headRefOid \
+              --jq .headRefOid
           )"
-          if [ -z "$head_branch" ]; then
-            echo "Release PR #$pr_number has no head branch." >&2
+          if [ -z "$head_sha" ]; then
+            echo "Release PR #$pr_number has no head commit." >&2
             exit 1
           fi
 
-          gh workflow run ci.yml --repo "${{ github.repository }}" --ref "$head_branch"
-          gh workflow run release-pr-validation.yml --repo "${{ github.repository }}" --ref "$head_branch"
           echo "number=$pr_number" >> "$GITHUB_OUTPUT"
-          echo "head_branch=$head_branch" >> "$GITHUB_OUTPUT"
-      - name: Enable auto-merge on the release PR
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+      - name: Approve checks and enable auto-merge on the release PR
         if: ${{ steps.release_pr.outputs.number != '' }}
         env:
-          # A fine-grained PAT (contents + pull requests read/write). Only the
-          # auto-merge enablement uses it: the eventual merge is then
-          # attributed to the PAT owner, so the push to main triggers this
-          # workflow again and release-please tags the release.
+          # A fine-grained PAT with Actions, contents, and pull requests
+          # read/write. It approves the pull_request workflows that GitHub
+          # holds for GITHUB_TOKEN-created PRs, then enables auto-merge. The
+          # release-please action itself must continue using GITHUB_TOKEN.
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          HEAD_SHA: ${{ steps.release_pr.outputs.head_sha }}
           PR_NUMBER: ${{ steps.release_pr.outputs.number }}
+        shell: bash
         run: |
           if [ -z "$GH_TOKEN" ]; then
-            echo "RELEASE_PLEASE_TOKEN secret is not configured; skipping auto-merge." >&2
+            echo "RELEASE_PLEASE_TOKEN secret is not configured; skipping check approval and auto-merge." >&2
             exit 0
           fi
+
+          runs_json="[]"
+          for attempt in {1..15}; do
+            runs_json="$(
+              gh run list \
+                --repo "${{ github.repository }}" \
+                --commit "$HEAD_SHA" \
+                --event pull_request \
+                --limit 20 \
+                --json databaseId,name,status,conclusion
+            )"
+            ci_run="$(
+              jq -r '[.[] | select(.name == "ci")][0].databaseId // empty' <<<"$runs_json"
+            )"
+            release_run="$(
+              jq -r '[.[] | select(.name == "release")][0].databaseId // empty' <<<"$runs_json"
+            )"
+            if [ -n "$ci_run" ] && [ -n "$release_run" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "${ci_run:-}" ] || [ -z "${release_run:-}" ]; then
+            echo "The pull_request validation runs for release PR #$PR_NUMBER were not created in time." >&2
+            exit 1
+          fi
+
+          for run_id in "$ci_run" "$release_run"; do
+            conclusion="$(
+              jq -r --argjson id "$run_id" \
+                '.[] | select(.databaseId == $id) | .conclusion' <<<"$runs_json"
+            )"
+            if [ "$conclusion" = "action_required" ]; then
+              gh api \
+                --method POST \
+                "repos/${{ github.repository }}/actions/runs/$run_id/approve"
+            fi
+          done
+
           gh pr merge --auto --merge "$PR_NUMBER" --repo "${{ github.repository }}"
 
   validate:
