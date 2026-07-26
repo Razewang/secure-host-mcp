@@ -14,8 +14,12 @@ const dirs: string[] = []; const servers: Server[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve())))); await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 function listen(app: Express, host = "127.0.0.1"): Promise<{ address: string; port: number }> { return new Promise((resolve) => { const server = app.listen(0, host, () => { servers.push(server); const address = server.address(); resolve(typeof address === "object" && address ? { address: address.address, port: address.port } : { address: "", port: 0 }); }); }); }
 
+// These tests boot real HTTP servers and spawn tunnel-inspection child
+// processes; slow Windows CI runners regularly blow the default 5s budget.
+const INTEGRATION_TIMEOUT_MS = 20000;
+
 describe("HTTP integration", () => {
-  it("authenticates an MCP client and keeps admin routes off the public app", async () => {
+  it("authenticates an MCP client and keeps admin routes off the public app", { timeout: INTEGRATION_TIMEOUT_MS }, async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const admin = await store.ensureAdminToken("integration-admin"); const created = await createApplication(store); const { port } = await listen(created.mcpApp);
     expect((await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`)).status).toBe(200);
     expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(404);
@@ -23,7 +27,7 @@ describe("HTTP integration", () => {
     await client.connect(transport); const tools = await client.listTools(); expect(tools.tools.map((tool) => tool.name)).toContain("execute_command"); await client.close(); await created.close();
   });
 
-  it("keeps the remotely bound administration API behind the administrator token", async () => {
+  it("keeps the remotely bound administration API behind the administrator token", { timeout: INTEGRATION_TIMEOUT_MS }, async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const admin = await store.ensureAdminToken("admin-integration-token"); const created = await createApplication(store); const bound = await listen(created.adminApp, created.config.admin.host); const { port } = bound;
     expect(created.config.admin.host).toBe("0.0.0.0");
     expect(bound.address).toBe("0.0.0.0");

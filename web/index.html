@@ -121,6 +121,21 @@
 
       <div class="panel">
         <div class="panel-header">
+          <h3 data-i18n="mcpExample">MCP 连接示例</h3>
+          <button class="btn btn-ghost btn-sm" id="copyMcpExampleBtn" data-i18n="copy">复制</button>
+        </div>
+        <div class="panel-body">
+          <p class="panel-note" id="mcpExampleDesc">免 OIDC 鉴权的连接方式：MCP 客户端通过 Authorization 请求头使用连接令牌直接接入 /mcp 端点。将示例中的密钥占位符替换为真实连接令牌即可使用。</p>
+          <div class="warning-banner" id="mcpExampleUrlNote" style="display:none">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+            <span id="mcpExampleUrlNoteText"></span>
+          </div>
+          <div class="config-block" id="mcpExampleBlock" data-i18n="notLoaded">尚未加载</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
           <h3 data-i18n="existingTokens">已有令牌</h3>
           <button class="btn btn-ghost btn-sm" id="refreshTokensBtn" data-i18n="refresh">刷新</button>
         </div>
