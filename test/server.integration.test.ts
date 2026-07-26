@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import type { Express } from "express";
 import os from "node:os";
@@ -51,7 +51,7 @@ describe("HTTP integration", () => {
     const csrf = JSON.parse(csrfLiteral ?? '""') as string;
     expect((await fetch(`http://127.0.0.1:${port}/api/status`)).status).toBe(401);
     const statusResponse = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { authorization: `Bearer ${admin}` } });
-    const status = await statusResponse.json() as { system: Record<string, unknown>; tunnels: { cloudflared: { managedRunning: unknown; lifecycle: unknown } } };
+    const status = await statusResponse.json() as { system: Record<string, unknown>; tunnels: { cloudflared: { managedRunning: unknown; lifecycle: unknown } }; paths: Record<string, string> };
     expect(statusResponse.status).toBe(200);
     expect(typeof status.system.hostname).toBe("string");
     expect(typeof status.system.cpus).toBe("number");
@@ -62,6 +62,30 @@ describe("HTTP integration", () => {
     const lifecycle = status.tunnels.cloudflared.lifecycle as Record<string, unknown>;
     expect(["stopped", "running"]).toContain(lifecycle.state);
     if (lifecycle.state === "running") expect(["managed", "external"]).toContain(lifecycle.control);
+    expect(status.paths.dataDir).toBe(dir);
+    expect(status.paths.configFile).toBe(path.join(dir, "config.json"));
+    expect(status.paths.auditDirectory).toBe(path.join(dir, "audit"));
+    expect((await fetch(`http://127.0.0.1:${port}/api/logs`)).status).toBe(401);
+    const emptyLogs = await (await fetch(`http://127.0.0.1:${port}/api/logs`, { headers: { authorization: `Bearer ${admin}` } })).json() as { directory: string; files: unknown[] };
+    expect(emptyLogs.directory).toBe(path.join(dir, "audit"));
+    expect(emptyLogs.files).toEqual([]);
+    await mkdir(path.join(dir, "audit"), { recursive: true });
+    await writeFile(path.join(dir, "audit", "2026-07-26.jsonl"), '{"timestamp":"2026-07-26T00:00:00.000Z","action":"execute_command","success":true}\n', "utf8");
+    const logsResponse = await fetch(`http://127.0.0.1:${port}/api/logs`, { headers: { authorization: `Bearer ${admin}` } });
+    const logs = await logsResponse.json() as { directory: string; files: Array<{ name: string; size: number; modifiedAt: string }> };
+    expect(logsResponse.status).toBe(200);
+    expect(logs.files.map((file) => file.name)).toEqual(["2026-07-26.jsonl"]);
+    expect(logs.files[0]?.size).toBeGreaterThan(0);
+    const logContentResponse = await fetch(`http://127.0.0.1:${port}/api/logs/2026-07-26.jsonl`, { headers: { authorization: `Bearer ${admin}` } });
+    const logContent = await logContentResponse.json() as { name: string; truncated: boolean; content: string };
+    expect(logContentResponse.status).toBe(200);
+    expect(logContent.name).toBe("2026-07-26.jsonl");
+    expect(logContent.truncated).toBe(false);
+    expect(logContent.content).toContain("execute_command");
+    expect((await fetch(`http://127.0.0.1:${port}/api/logs/2026-07-26.jsonl`)).status).toBe(401);
+    expect((await fetch(`http://127.0.0.1:${port}/api/logs/secrets.json`, { headers: { authorization: `Bearer ${admin}` } })).status).toBe(400);
+    expect((await fetch(`http://127.0.0.1:${port}/api/logs/..%2Fsecrets.jsonl`, { headers: { authorization: `Bearer ${admin}` } })).status).toBe(400);
+    expect((await fetch(`http://127.0.0.1:${port}/api/logs/2000-01-01.jsonl`, { headers: { authorization: `Bearer ${admin}` } })).status).toBe(404);
     const createResponse = await fetch(`http://127.0.0.1:${port}/api/tokens`, {
       method: "POST",
       headers: { authorization: `Bearer ${admin}`, "content-type": "application/json", "x-csrf-token": csrf },

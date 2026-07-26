@@ -66,6 +66,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       <span data-i18n="tunnels">隧道</span>
     </button>
+    <button class="nav-item" data-section="logs">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8m8 4H8m2-8H8"/></svg>
+      <span data-i18n="logs">日志</span>
+    </button>
     <button class="nav-item" data-section="config">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       <span data-i18n="configuration">配置</span>
@@ -78,6 +82,10 @@
     <section class="section active" id="sec-overview">
       <h2 class="section-title" data-i18n="systemOverview">系统概览</h2>
       <p class="section-desc" data-i18n="overviewDescription">服务器运行状态与资源监控</p>
+      <div class="warning-banner" id="domainWarning" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+        <span id="domainWarningText"></span>
+      </div>
       <div id="overviewLoading" class="loading-state"><div class="spinner"></div><span data-i18n="loadingStatus">正在加载系统状态…</span></div>
       <div id="overviewContent" style="display:none">
         <div class="cards-grid" id="sysCards"></div>
@@ -134,10 +142,53 @@
       <div class="tunnel-grid" id="tunnelGrid"></div>
     </section>
 
+    <!-- Logs -->
+    <section class="section" id="sec-logs">
+      <h2 class="section-title" data-i18n="auditLogs">审计日志</h2>
+      <p class="section-desc" data-i18n="logsDescription">命令执行与管理操作的审计记录</p>
+      <div class="panel">
+        <div class="panel-header"><h3 data-i18n="logLocation">日志文件位置</h3></div>
+        <div class="panel-body"><code class="path-display" id="logDirectory">—</code></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3 data-i18n="logFiles">日志文件</h3>
+          <button class="btn btn-ghost btn-sm" id="refreshLogsBtn" data-i18n="refresh">刷新</button>
+        </div>
+        <div class="panel-body">
+          <div id="logsLoading" class="loading-state"><div class="spinner"></div><span data-i18n="loadingLogs">正在加载日志列表…</span></div>
+          <ul class="log-file-list" id="logFileList" style="display:none"></ul>
+          <div class="empty-state" id="logsEmpty" style="display:none">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <p data-i18n="noLogs">暂无审计日志记录</p>
+          </div>
+        </div>
+      </div>
+      <div class="panel" id="logViewerPanel" style="display:none">
+        <div class="panel-header"><h3 id="logViewerTitle">—</h3><button class="btn btn-ghost btn-sm" id="closeLogBtn" data-i18n="close">关闭</button></div>
+        <div class="panel-body">
+          <div class="log-truncated" id="logTruncatedNote" style="display:none" data-i18n="logTruncated">文件较大，仅显示末尾部分内容。完整日志请查看上方目录中的文件。</div>
+          <pre class="log-viewer" id="logContent"></pre>
+        </div>
+      </div>
+    </section>
+
     <!-- Config -->
     <section class="section" id="sec-config">
       <h2 class="section-title" data-i18n="serviceConfiguration">服务配置</h2>
       <p class="section-desc" data-i18n="configurationDescription">当前 MCP 服务与管理面板的运行配置</p>
+      <div class="warning-banner" id="configDomainWarning" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+        <span id="configDomainWarningText"></span>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h3 data-i18n="filePaths">文件位置</h3></div>
+        <div class="panel-body">
+          <div class="path-row"><span class="path-label" data-i18n="configFile">配置文件</span><code class="path-display" id="configFilePath">—</code></div>
+          <div class="path-row"><span class="path-label" data-i18n="dataDirectory">数据目录</span><code class="path-display" id="dataDirPath">—</code></div>
+          <div class="path-row"><span class="path-label" data-i18n="auditDirectory">审计日志目录</span><code class="path-display" id="auditDirPath">—</code></div>
+        </div>
+      </div>
       <div class="panel">
         <div class="panel-header"><h3 data-i18n="runtimeConfiguration">运行配置</h3></div>
         <div class="panel-body">
@@ -161,6 +212,10 @@
     <button data-section="tunnels">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       <span data-i18n="tunnels">隧道</span>
+    </button>
+    <button data-section="logs">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8m8 4H8"/></svg>
+      <span data-i18n="logs">日志</span>
     </button>
     <button data-section="config">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>

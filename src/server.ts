@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import express, { type Request, type Response } from "express";
 import { readFileSync } from "node:fs";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import type { Server } from "node:http";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { AuditLog } from "./audit.js";
@@ -25,11 +26,14 @@ const TunnelParamsSchema = z.object({
   kind: z.enum(["frpc", "cloudflared"]),
   action: z.enum(["start", "stop"])
 });
+const LOG_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.jsonl$/;
+const LOG_VIEW_MAX_BYTES = 64 * 1024;
 
 interface AdminStatus {
   system: ReturnType<CommandExecutor["systemInfo"]>;
   tunnels: TunnelInspection;
   config: Pick<AppConfig, "mcp" | "admin" | "publicBaseUrl" | "network" | "legacySse" | "adminMode">;
+  paths: { dataDir: string; configFile: string; auditDirectory: string };
 }
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) { return (req: Request, res: Response, next: (error?: unknown) => void) => { void handler(req, res).catch(next); }; }
@@ -77,13 +81,54 @@ export async function createApplication(store = new ConfigStore()): Promise<{ mc
   adminApp.get("/app.js", (_req, res) => res.type("js").sendFile(adminWebFile("app.js")));
   const requireAdminRead = adminAuthorization(auth, csrf, false);
   const requireAdminMutation = adminAuthorization(auth, csrf, true);
+  const auditDirectory = join(config.dataDir, "audit");
   adminApp.get("/api/status", requireAdminRead, asyncRoute(async (_req, res) => {
     const status: AdminStatus = {
       system: executor.systemInfo(),
       tunnels: await tunnels.inspect(),
-      config: { mcp: config.mcp, admin: config.admin, publicBaseUrl: config.publicBaseUrl, network: config.network, legacySse: config.legacySse, adminMode: config.adminMode }
+      config: { mcp: config.mcp, admin: config.admin, publicBaseUrl: config.publicBaseUrl, network: config.network, legacySse: config.legacySse, adminMode: config.adminMode },
+      paths: { dataDir: config.dataDir, configFile: store.configPath, auditDirectory }
     };
     res.json(status);
+  }));
+  adminApp.get("/api/logs", requireAdminRead, asyncRoute(async (_req, res) => {
+    let files: Array<{ name: string; size: number; modifiedAt: string }> = [];
+    try {
+      const entries = await readdir(auditDirectory, { withFileTypes: true });
+      files = await Promise.all(entries
+        .filter((entry) => entry.isFile() && LOG_FILE_NAME.test(entry.name))
+        .map(async (entry) => {
+          const info = await stat(join(auditDirectory, entry.name));
+          return { name: entry.name, size: info.size, modifiedAt: info.mtime.toISOString() };
+        }));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    files.sort((a, b) => b.name.localeCompare(a.name));
+    res.json({ directory: auditDirectory, files });
+  }));
+  adminApp.get("/api/logs/:name", requireAdminRead, asyncRoute(async (req, res) => {
+    const name = String(req.params.name);
+    if (!LOG_FILE_NAME.test(name) || basename(name) !== name) throw new AppError("INVALID_LOG_NAME", "log file name must match an audit log file", 400);
+    const file = resolve(auditDirectory, name);
+    if (dirname(file) !== resolve(auditDirectory)) throw new AppError("INVALID_LOG_NAME", "log file name must match an audit log file", 400);
+    let info;
+    try { info = await stat(file); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new AppError("LOG_NOT_FOUND", `unknown log file: ${name}`, 404);
+      throw error;
+    }
+    let content: string;
+    const truncated = info.size > LOG_VIEW_MAX_BYTES;
+    if (!truncated) content = await readFile(file, "utf8");
+    else {
+      const handle = await open(file, "r");
+      try {
+        const { buffer, bytesRead } = await handle.read(Buffer.alloc(LOG_VIEW_MAX_BYTES), 0, LOG_VIEW_MAX_BYTES, info.size - LOG_VIEW_MAX_BYTES);
+        const raw = buffer.subarray(0, bytesRead).toString("utf8");
+        content = raw.slice(raw.indexOf("\n") + 1);
+      } finally { await handle.close(); }
+    }
+    res.json({ name, size: info.size, truncated, content });
   }));
   adminApp.get("/api/tokens", requireAdminRead, (_req, res) => { res.json(auth.listTokens()); });
   adminApp.post("/api/tokens", requireAdminMutation, asyncRoute(async (req, res) => {
