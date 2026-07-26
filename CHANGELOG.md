@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.5](https://github.com/Razewang/secure-host-mcp/compare/v0.1.4...v0.1.5) (2026-07-26)
+
+
+### Features
+
+* add macos arm64 release artifacts ([298d40f](https://github.com/Razewang/secure-host-mcp/commit/298d40f2c34f1f5d4cb994ec225465e286c354b5))
+* detect externally managed cloudflare tunnels ([316c9b3](https://github.com/Razewang/secure-host-mcp/commit/316c9b32e77a71241378e37116c3c23eb4dd41e8))
+* detect token-managed tunnels and add macOS arm64 releases ([937bb8c](https://github.com/Razewang/secure-host-mcp/commit/937bb8c301c99759626d86bf165d011dd67b4296))
+
+
+### Bug Fixes
+
+* probe windows cloudflared service with sc.exe to avoid CI test timeouts ([ed93da2](https://github.com/Razewang/secure-host-mcp/commit/ed93da246b3df934b1c8cb9ecce8393d9d860bc0))
+* probe windows cloudflared service with sc.exe to avoid CI test timeouts ([2a89e9a](https://github.com/Razewang/secure-host-mcp/commit/2a89e9a1283621a846515bd1147f9551e3f5fc83))
+
 ## [0.1.4](https://github.com/Razewang/secure-host-mcp/compare/v0.1.3...v0.1.4) (2026-07-24)
 
 
