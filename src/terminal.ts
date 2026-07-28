@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { chmod } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import * as nodePty from "node-pty";
 import type { AppConfig } from "./config.js";
@@ -39,6 +41,23 @@ export interface CreateTerminalInput {
   rows?: number;
 }
 
+let nodePtySpawnHelperReady: Promise<void> | undefined;
+
+function ensureNodePtySpawnHelper(): Promise<void> {
+  if (process.platform !== "darwin") return Promise.resolve();
+  nodePtySpawnHelperReady ??= (async () => {
+    const require = createRequire(import.meta.url);
+    const packageRoot = path.dirname(require.resolve("node-pty/package.json"));
+    const helper = path.join(packageRoot, "prebuilds", `darwin-${process.arch}`, "spawn-helper");
+    try {
+      await chmod(helper, 0o755);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  })();
+  return nodePtySpawnHelperReady;
+}
+
 export class TerminalManager {
   private readonly sessions = new Map<string, TerminalSession>();
   private readonly cleanupTimer: NodeJS.Timeout;
@@ -63,6 +82,7 @@ export class TerminalManager {
     const rows = input.rows ?? 30;
     const id = randomUUID();
     const now = Date.now();
+    await ensureNodePtySpawnHelper();
     const pty = nodePty.spawn(shell.file, shell.args, {
       name: "xterm-256color",
       cols,

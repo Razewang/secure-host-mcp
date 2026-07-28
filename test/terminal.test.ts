@@ -36,14 +36,41 @@ async function fixture(outputBytes = 1024 * 1024, ttlMs = 30_000): Promise<{ dir
   };
 }
 
-async function waitForMarker(manager: TerminalManager, id: string, marker: string, access: RuntimeAccess): Promise<Record<string, unknown>> {
+async function waitForMarker(
+  manager: TerminalManager,
+  id: string,
+  marker: string,
+  access: RuntimeAccess,
+  requiredFragment?: string,
+  attempts = 100
+): Promise<Record<string, unknown>> {
   let last: Record<string, unknown> = {};
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     last = manager.read(id, 0, undefined, access);
-    if (String(last.data).includes(marker)) return last;
+    const data = String(last.data);
+    if (data.includes(marker) && (!requiredFragment || data.includes(requiredFragment))) return last;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`terminal marker not observed: ${marker}; last=${JSON.stringify(last)}`);
+}
+
+async function writeUntilMarker(
+  manager: TerminalManager,
+  id: string,
+  command: string,
+  marker: string,
+  access: RuntimeAccess
+): Promise<Record<string, unknown>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    manager.write(id, command, access);
+    try {
+      return await waitForMarker(manager, id, marker, access, undefined, 40);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
 
 describe("TerminalManager", () => {
@@ -59,16 +86,23 @@ describe("TerminalManager", () => {
       ? "Write-Output \"`e[31msecure-host-terminal-marker`e[0m\"\r"
       : "printf '\\033[31msecure-host-terminal-marker\\033[0m\\n'\n";
     manager.write(id, command, owner);
-    const markerOutput = String((await waitForMarker(manager, id, "secure-host-terminal-marker", owner)).data);
+    const markerOutput = String((await waitForMarker(manager, id, "secure-host-terminal-marker", owner, "\u001b[")).data);
     expect(markerOutput).toContain("secure-host-terminal-marker");
     expect(markerOutput).toContain("\u001b[");
 
     manager.write(id, process.platform === "win32" ? "Start-Sleep -Seconds 30\r" : "sleep 30\n", owner);
     await new Promise((resolve) => setTimeout(resolve, 200));
     manager.interrupt(id, owner);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    manager.write(id, process.platform === "win32" ? "Write-Output \"secure-host-after-interrupt\"\r" : "printf 'secure-host-after-interrupt\\n'\n", owner);
-    expect(String((await waitForMarker(manager, id, "secure-host-after-interrupt", owner)).data)).toContain("secure-host-after-interrupt");
+    const afterInterrupt = await writeUntilMarker(
+      manager,
+      id,
+      process.platform === "win32"
+        ? "Write-Output (\"secure-host-after-\" + \"interrupt\")\r"
+        : "printf 'secure-host-after-%s\\n' 'interrupt'\n",
+      "secure-host-after-interrupt",
+      owner
+    );
+    expect(String(afterInterrupt.data)).toContain("secure-host-after-interrupt");
     expect(manager.close(id, owner)).toMatchObject({ closed: true, status: "closed" });
   });
 
