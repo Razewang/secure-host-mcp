@@ -1,4 +1,4 @@
-import { copyFile, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { build } from "esbuild";
 
@@ -29,10 +29,16 @@ await mkdir(ptyTarget, { recursive: true });
 for (const name of ["package.json", "LICENSE"]) await copyFile(path.join(ptySource, name), path.join(ptyTarget, name));
 await cp(path.join(ptySource, "lib"), path.join(ptyTarget, "lib"), { recursive: true });
 const nativeDirectory = `${platform}-${arch}`;
-await cp(path.join(ptySource, "prebuilds", nativeDirectory), path.join(ptyTarget, "prebuilds", nativeDirectory), { recursive: true });
+const prebuildSource = path.join(ptySource, "prebuilds", nativeDirectory);
+const prebuildTarget = path.join(ptyTarget, "prebuilds", nativeDirectory);
+const buildSource = path.join(ptySource, "build", "Release");
+const buildTarget = path.join(ptyTarget, "build", "Release");
+const hasPrebuild = await access(prebuildSource).then(() => true, () => false);
+const nativeTarget = hasPrebuild ? prebuildTarget : buildTarget;
+await cp(hasPrebuild ? prebuildSource : buildSource, nativeTarget, { recursive: true });
 if (platform !== "win32") {
   const { chmod } = await import("node:fs/promises");
-  const spawnHelper = path.join(ptyTarget, "prebuilds", nativeDirectory, "spawn-helper");
+  const spawnHelper = path.join(nativeTarget, "spawn-helper");
   try { await chmod(spawnHelper, 0o755); } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
