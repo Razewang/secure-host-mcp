@@ -38,6 +38,18 @@ afterEach(async () => {
 });
 
 describe("ConfigStore", () => {
+  it("provides bounded coding-workspace defaults for existing configurations", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir);
+    const config = await new ConfigStore(dir).loadConfig();
+    expect(config.coding).toEqual({
+      enabled: true,
+      root: path.join(dir, "workspace"),
+      maxReadBytes: 524288,
+      maxSearchResults: 1000,
+      maxPatchBytes: 1048576
+    });
+  });
+
   it("defaults new installations to public listeners", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir);
     expect(await store.loadConfig()).toMatchObject({ mcp: { host: "0.0.0.0", port: 8767 }, admin: { host: "0.0.0.0", port: 8768 } });

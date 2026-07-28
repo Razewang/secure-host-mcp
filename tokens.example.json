@@ -10,6 +10,8 @@
         "system.read",
         "command.run",
         "command.elevate",
+        "workspace.read",
+        "workspace.write",
         "tunnel.read",
         "tunnel.manage",
         "admin.manage"

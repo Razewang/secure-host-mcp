@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { AppConfig, ConfigStore } from "./config.js";
 import { setupSummary } from "./launch.js";
@@ -8,6 +9,7 @@ export interface InstallationOptions {
   adminToken?: string;
   hasPublicIp?: boolean;
   publicAddress?: string;
+  codingRoot?: string;
 }
 
 export interface SetupResult {
@@ -83,12 +85,13 @@ async function persistInstallation(store: ConfigStore, config: AppConfig, option
   if (options.hasPublicIp !== undefined) config.network.hasPublicIp = options.hasPublicIp;
   if (options.publicAddress) config.network.publicAddress = options.publicAddress;
   else if (options.hasPublicIp === false) delete config.network.publicAddress;
+  if (options.codingRoot) config.coding.root = path.resolve(options.codingRoot);
   await store.saveConfig(config);
   const adminToken = await store.ensureAdminToken(options.adminToken);
   return { config, ...(adminToken ? { adminToken } : {}) };
 }
 
-export async function runInteractiveSetup(store: ConfigStore, publicUrl?: string): Promise<SetupResult> {
+export async function runInteractiveSetup(store: ConfigStore, publicUrl?: string, requestedCodingRoot?: string): Promise<SetupResult> {
   const needsAdminToken = !(await store.hasAdminToken());
   const config = await store.loadConfig();
   if (publicUrl) config.publicBaseUrl = publicUrl;
@@ -96,6 +99,7 @@ export async function runInteractiveSetup(store: ConfigStore, publicUrl?: string
   let adminToken: string | undefined;
   let publicAccess: Pick<InstallationOptions, "hasPublicIp" | "publicAddress"> = {};
   let installCloudflare = false;
+  let codingRoot = requestedCodingRoot;
   const tunnels = new TunnelManager(config);
 
   if (needsAdminToken && interactiveTerminal()) {
@@ -106,9 +110,11 @@ export async function runInteractiveSetup(store: ConfigStore, publicUrl?: string
     else installCloudflare = await confirm("Install Cloudflare Tunnel (cloudflared) now?", !publicAccess.hasPublicIp);
     console.log("The initial token is used both as the web-console administrator token and as a full-access MCP connection token.");
     adminToken = await chooseAdminToken();
+    const defaultWorkspace = path.join(store.dataDir, "workspace");
+    codingRoot = await ask(`Coding workspace directory [${defaultWorkspace}]: `) || defaultWorkspace;
   }
 
-  const prepared = await persistInstallation(store, config, { ...publicAccess, ...(adminToken ? { adminToken } : {}) });
+  const prepared = await persistInstallation(store, config, { ...publicAccess, ...(adminToken ? { adminToken } : {}), ...(codingRoot ? { codingRoot } : {}) });
 
   let cloudflareMessage: string | undefined;
   if (installCloudflare) {

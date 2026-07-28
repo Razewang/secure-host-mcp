@@ -14,9 +14,9 @@ async function runServer(store = new ConfigStore()): Promise<void> {
   console.log(`Admin: ${typeof adminAddress === "object" && adminAddress ? `${adminAddress.address}:${adminAddress.port}` : String(adminAddress)}`);
   const stop = () => void running.close().then(() => process.exit(0)); process.on("SIGINT", stop); process.on("SIGTERM", stop);
 }
-program.command("setup").description("Run first-time setup and create the administrator token").option("--public-url <url>").action(async (options: { publicUrl?: string }) => {
+program.command("setup").description("Run first-time setup and create the administrator token").option("--public-url <url>").option("--workspace <directory>", "coding workspace root").action(async (options: { publicUrl?: string; workspace?: string }) => {
   const store = new ConfigStore();
-  printSetupReport(store, await runInteractiveSetup(store, options.publicUrl));
+  printSetupReport(store, await runInteractiveSetup(store, options.publicUrl, options.workspace));
 });
 program.command("start").description("Start the MCP and administration HTTP servers").action(async () => runServer());
 program.command("launch", { hidden: true }).description("Initialize on first run, then start the servers").action(async () => {
@@ -25,6 +25,6 @@ program.command("launch", { hidden: true }).description("Initialize on first run
   await runServer(store);
 });
 program.command("helper").description("Start the local privileged helper (must already be root/SYSTEM)").action(async () => { const store = new ConfigStore(); const server = await startPrivilegeHelper(await store.loadConfig(), store); console.log("Privileged helper listening on 127.0.0.1:8769"); const stop = () => server.close(() => process.exit(0)); process.on("SIGINT", stop); process.on("SIGTERM", stop); });
-program.command("doctor").description("Inspect configuration and tunnel clients").action(async () => { const store = new ConfigStore(); const config = await store.loadConfig(); console.log(JSON.stringify({ configPath: store.configPath, publicBaseUrl: config.publicBaseUrl, tunnels: await new TunnelManager(config).inspect() }, null, 2)); });
+program.command("doctor").description("Inspect configuration, coding workspace, and tunnel clients").action(async () => { const store = new ConfigStore(); const config = await store.loadConfig(); console.log(JSON.stringify({ configPath: store.configPath, publicBaseUrl: config.publicBaseUrl, coding: config.coding, tunnels: await new TunnelManager(config).inspect() }, null, 2)); });
 program.command("tunnel").argument("<action>", "inspect|start|stop|install-plan|install").argument("[kind]", "cloudflared|frpc").option("--yes", "confirm installation from the official release").action(async (action: string, rawKind: string | undefined, options: { yes?: boolean }) => { const config = await new ConfigStore().loadConfig(); const tunnels = new TunnelManager(config); const kind = rawKind === "frpc" ? "frpc" : "cloudflared"; if (action === "inspect") console.log(JSON.stringify(await tunnels.inspect(), null, 2)); else if (action === "start") console.log(JSON.stringify(await tunnels.start(kind), null, 2)); else if (action === "stop") tunnels.stop(kind); else if (action === "install-plan") console.log(JSON.stringify(tunnels.installPlan(kind), null, 2)); else if (action === "install") console.log(JSON.stringify(await tunnels.install(kind, Boolean(options.yes)), null, 2)); else throw new Error(`Unknown action: ${action}`); });
 await program.parseAsync();

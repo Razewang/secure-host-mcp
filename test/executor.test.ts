@@ -18,4 +18,17 @@ describe("CommandExecutor", () => {
   it("tracks and cancels a background job", async () => {
     const run = await executor(); const command = process.platform === "win32" ? "Start-Sleep -Seconds 30" : "sleep 30"; const job = await run.start({ command }); expect(run.status(job.jobId).status).toBe("running"); run.cancel(job.jobId); expect(run.status(job.jobId).status).toBe("cancelled");
   });
+  it("writes input to an interactive background job", { timeout: PROCESS_TEST_TIMEOUT_MS }, async () => {
+    const run = await executor();
+    const command = process.platform === "win32"
+      ? "$line = [Console]::In.ReadLine(); Write-Output \"got:$line\""
+      : "IFS= read -r line; printf 'got:%s\\n' \"$line\"";
+    const job = await run.start({ command });
+    await run.writeInput(job.jobId, "hello\n", true);
+    for (let attempt = 0; attempt < 100 && run.status(job.jobId).status === "running"; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(String(run.output(job.jobId).data)).toContain("got:hello");
+    await expect(run.writeInput(job.jobId, "again")).rejects.toThrow("stdin is closed");
+  });
 });

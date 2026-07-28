@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import type { Express } from "express";
 import os from "node:os";
@@ -13,6 +13,7 @@ import { ALL_SCOPES } from "../src/types.js";
 const dirs: string[] = []; const servers: Server[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve())))); await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 function listen(app: Express, host = "127.0.0.1"): Promise<{ address: string; port: number }> { return new Promise((resolve) => { const server = app.listen(0, host, () => { servers.push(server); const address = server.address(); resolve(typeof address === "object" && address ? { address: address.address, port: address.port } : { address: "", port: 0 }); }); }); }
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null; }
 
 // These tests boot real HTTP servers and spawn tunnel-inspection child
 // processes; slow Windows CI runners regularly blow the default 5s budget.
@@ -20,11 +21,38 @@ const INTEGRATION_TIMEOUT_MS = 20000;
 
 describe("HTTP integration", () => {
   it("authenticates an MCP client and keeps admin routes off the public app", { timeout: INTEGRATION_TIMEOUT_MS }, async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const admin = await store.ensureAdminToken("integration-admin"); const created = await createApplication(store); const { port } = await listen(created.mcpApp);
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const admin = "integration-admin";
+    await store.saveTokenConfig({ version: 1, adminToken: admin, connectionTokens: [{ id: "coding-reader", token: "reader-token", label: "Coding reader", scopes: ["workspace.read"] }] });
+    const created = await createApplication(store); const { port } = await listen(created.mcpApp);
     expect((await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`)).status).toBe(200);
     expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(404);
     const client = new Client({ name: "integration-test", version: "1" }); const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: `Bearer ${admin}` } } });
-    await client.connect(transport); const tools = await client.listTools(); expect(tools.tools.map((tool) => tool.name)).toContain("execute_command"); await client.close(); await created.close();
+    await writeFile(path.join(dir, "workspace", "hello.ts"), "export const hello = true;\n", "utf8");
+    await client.connect(transport);
+    const tools = await client.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["execute_command", "read_file", "apply_patch", "git_status"]));
+    const file = await client.callTool({ name: "read_file", arguments: { path: "hello.ts" } });
+    const rawContent: unknown = file.content;
+    expect(Array.isArray(rawContent)).toBe(true);
+    const firstContent: unknown = Array.isArray(rawContent) ? rawContent[0] : undefined;
+    expect(isRecord(firstContent) ? firstContent.type : undefined).toBe("text");
+    expect(isRecord(firstContent) ? String(firstContent.text) : "").toContain("export const hello");
+    expect(isRecord(file.structuredContent) ? file.structuredContent.path : undefined).toBe("hello.ts");
+    const originalSha = isRecord(file.structuredContent) ? String(file.structuredContent.sha256) : "";
+    const patched = await client.callTool({ name: "apply_patch", arguments: { changes: [{ type: "replace", path: "hello.ts", oldText: "true", newText: "false", expectedSha256: originalSha }] } });
+    expect(patched.isError).not.toBe(true);
+    expect(await readFile(path.join(dir, "workspace", "hello.ts"), "utf8")).toContain("hello = false");
+    await client.close();
+
+    const readClient = new Client({ name: "read-only-test", version: "1" });
+    const readTransport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: "Bearer reader-token" } } });
+    await readClient.connect(readTransport);
+    await expect(readClient.callTool({ name: "read_file", arguments: { path: "hello.ts" } })).resolves.toBeDefined();
+    const denied = await readClient.callTool({ name: "apply_patch", arguments: { changes: [{ type: "create", path: "denied.ts", content: "no" }] } });
+    expect(denied.isError).toBe(true);
+    expect(JSON.stringify(denied.content)).toContain("scope required: workspace.write");
+    await expect(readFile(path.join(dir, "workspace", "denied.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await readClient.close(); await created.close();
   });
 
   it("keeps the remotely bound administration API behind the administrator token", { timeout: INTEGRATION_TIMEOUT_MS }, async () => {
@@ -55,12 +83,13 @@ describe("HTTP integration", () => {
     const csrf = JSON.parse(csrfLiteral ?? '""') as string;
     expect((await fetch(`http://127.0.0.1:${port}/api/status`)).status).toBe(401);
     const statusResponse = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { authorization: `Bearer ${admin}` } });
-    const status = await statusResponse.json() as { system: Record<string, unknown>; tunnels: { cloudflared: { managedRunning: unknown; lifecycle: unknown } }; paths: Record<string, string> };
+    const status = await statusResponse.json() as { system: Record<string, unknown>; tunnels: { cloudflared: { managedRunning: unknown; lifecycle: unknown } }; config: { coding: { enabled: boolean } }; paths: Record<string, string> };
     expect(statusResponse.status).toBe(200);
     expect(typeof status.system.hostname).toBe("string");
     expect(typeof status.system.cpus).toBe("number");
     expect(typeof status.system.totalMemory).toBe("number");
     expect(typeof status.system.node).toBe("string");
+    expect(status.config.coding.enabled).toBe(true);
     expect(typeof status.tunnels.cloudflared.managedRunning).toBe("boolean");
     expect(status.tunnels.cloudflared.lifecycle).toBeTypeOf("object");
     const lifecycle = status.tunnels.cloudflared.lifecycle as Record<string, unknown>;

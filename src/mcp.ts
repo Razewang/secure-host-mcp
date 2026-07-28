@@ -14,15 +14,24 @@ import { isProcessElevated } from "./executor.js";
 import type { Principal } from "./types.js";
 import type { TunnelManager } from "./tunnels.js";
 import type { PrivilegeClient } from "./privilege.js";
+import type { CodingWorkspace } from "./workspace.js";
 
 type Transport = StreamableHTTPServerTransport;
 const commandSchema = { command: z.string().min(1), cwd: z.string().optional(), env: z.record(z.string()).optional(), timeoutMs: z.number().int().positive().optional() };
-const asText = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] });
+const asText = (value: unknown) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
+  structuredContent: typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : { value }
+});
+const workspaceChangeSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("create"), path: z.string().min(1), content: z.string(), expectedSha256: z.string().optional() }),
+  z.object({ type: z.literal("replace"), path: z.string().min(1), oldText: z.string().min(1), newText: z.string(), expectedSha256: z.string().optional() }),
+  z.object({ type: z.literal("delete"), path: z.string().min(1), expectedSha256: z.string().optional() })
+]);
 
 export class McpHost {
   private readonly transports = new Map<string, Transport>();
   private readonly legacyTransports = new Map<string, SSEServerTransport>();
-  constructor(private readonly config: AppConfig, private readonly executor: CommandExecutor, private readonly tunnels: TunnelManager, private readonly audit: AuditLog, private readonly privilege: PrivilegeClient) {}
+  constructor(private readonly config: AppConfig, private readonly executor: CommandExecutor, private readonly tunnels: TunnelManager, private readonly audit: AuditLog, private readonly privilege: PrivilegeClient, private readonly workspace: CodingWorkspace) {}
 
   private createServer(principal: Principal): McpServer {
     const server = new McpServer({ name: "secure-host-mcp", version: packageVersion() });
@@ -33,13 +42,54 @@ export class McpHost {
     server.registerTool("start_job", { description: "Start a tracked background command", inputSchema: commandSchema, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async (input) => { requireScope(principal, "command.run"); const result = await this.executor.start(input, async (completed) => { await this.audit.write({ correlationId: completed.correlationId, action: "job.complete", principalId: principal.id, success: completed.exitCode === 0, command: input.command, stdout: completed.stdout, stderr: completed.stderr, metadata: { exitCode: completed.exitCode, truncated: completed.truncated } }); }); await this.audit.write({ correlationId: result.correlationId, action: "job.start", principalId: principal.id, success: true, command: input.command }); return asText(result); });
     server.registerTool("job_status", { description: "Read tracked background job status", inputSchema: { jobId: z.string().uuid() }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ jobId }) => { requireScope(principal, "command.run"); return asText(this.executor.status(jobId)); });
     server.registerTool("read_job_output", { description: "Read background job output from an offset", inputSchema: { jobId: z.string().uuid(), offset: z.number().int().nonnegative().default(0) }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ jobId, offset }) => { requireScope(principal, "command.run"); return asText(this.executor.output(jobId, offset)); });
+    server.registerTool("write_job_input", { description: "Write UTF-8 input to a running background job and optionally close stdin", inputSchema: { jobId: z.string().uuid(), data: z.string().default(""), close: z.boolean().default(false) }, annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } }, async ({ jobId, data, close }) => { requireScope(principal, "command.run"); return asText(await this.executor.writeInput(jobId, data, close)); });
     server.registerTool("cancel_job", { description: "Cancel a tracked background job", inputSchema: { jobId: z.string().uuid() }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false } }, async ({ jobId }) => { requireScope(principal, "command.run"); this.executor.cancel(jobId); await this.audit.write({ correlationId: randomUUID(), action: "job.cancel", principalId: principal.id, success: true, metadata: { jobId } }); return asText({ cancelled: true, jobId }); });
     server.registerTool("execute_elevated", { description: "Execute a command through administrator mode or the privileged helper", inputSchema: commandSchema, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async (input) => { requireScope(principal, "command.elevate"); const result = isProcessElevated() ? await this.executor.execute({ ...input, elevated: true }) : await this.privilege.execute({ ...input, elevated: true }); await this.audit.write({ correlationId: result.correlationId, action: "command.elevated", principalId: principal.id, success: result.exitCode === 0, command: input.command, stdout: result.stdout, stderr: result.stderr }); return asText(result); });
     server.registerTool("set_admin_mode", { description: "Restart the whole MCP as root/SYSTEM through the privileged helper, or request local service-account restoration.", inputSchema: { enabled: z.boolean(), acknowledgement: z.literal("I understand this gives the Agent full host control") }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async ({ enabled }) => { requireScope(principal, "admin.manage"); const correlationId = randomUUID(); await this.audit.write({ correlationId, action: "admin-mode.request", principalId: principal.id, success: true, metadata: { enabled } }); if (!enabled) return asText({ requested: false, enabled, message: "Safe privilege drop requires restoring the configured systemd/Windows Service account locally, then restarting." }); if (isProcessElevated()) return asText({ requested: false, enabled: true, message: "This MCP process is already elevated." }); await this.privilege.restartAsAdministrator(); return asText({ requested: true, enabled: true, message: "The privileged helper accepted the request; this MCP instance will restart elevated." }); });
+    if (this.config.coding.enabled) this.registerCodingTools(server, principal);
     server.registerTool("tunnel_inspect", { description: "Inspect cloudflared and frpc installation/configuration with secrets redacted", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } }, async () => { requireScope(principal, "tunnel.read"); return asText(await this.tunnels.inspect()); });
     server.registerTool("tunnel_start", { description: "Start a configured tunnel client", inputSchema: { kind: z.enum(["cloudflared", "frpc"]) }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async ({ kind }) => { requireScope(principal, "tunnel.manage"); return asText(await this.tunnels.start(kind)); });
     server.registerTool("tunnel_stop", { description: "Stop a tunnel client started by this service", inputSchema: { kind: z.enum(["cloudflared", "frpc"]) }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async ({ kind }) => { requireScope(principal, "tunnel.manage"); this.tunnels.stop(kind); return asText({ stopped: true, kind }); });
     return server;
+  }
+
+  private registerCodingTools(server: McpServer, principal: Principal): void {
+    server.registerTool("workspace_info", { description: "Show the configured coding workspace and its limits", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } }, async () => {
+      requireScope(principal, "workspace.read"); return asText(this.workspace.info());
+    });
+    server.registerTool("read_file", { description: "Read a bounded UTF-8 file range inside the coding workspace", inputSchema: { path: z.string().min(1), startLine: z.number().int().positive().optional(), maxLines: z.number().int().positive().max(5000).optional(), maxBytes: z.number().int().positive().optional() }, annotations: { readOnlyHint: true, openWorldHint: false } }, async (input) => {
+      requireScope(principal, "workspace.read"); return asText(await this.workspace.readFile(input));
+    });
+    server.registerTool("list_directory", { description: "List entries inside the coding workspace without following symbolic links", inputSchema: { path: z.string().default("."), recursive: z.boolean().default(false), maxDepth: z.number().int().positive().max(20).default(3), maxEntries: z.number().int().positive().max(5000).default(1000), includeHidden: z.boolean().default(false) }, annotations: { readOnlyHint: true, openWorldHint: false } }, async (input) => {
+      requireScope(principal, "workspace.read"); return asText(await this.workspace.listDirectory(input));
+    });
+    server.registerTool("list_files", { description: "Recursively list coding-workspace files with an optional glob", inputSchema: { path: z.string().default("."), glob: z.string().optional(), maxResults: z.number().int().positive().max(5000).default(1000), includeHidden: z.boolean().default(false) }, annotations: { readOnlyHint: true, openWorldHint: false } }, async (input) => {
+      requireScope(principal, "workspace.read"); return asText(await this.workspace.listFiles(input));
+    });
+    server.registerTool("search_text", { description: "Search UTF-8 files in the coding workspace using literal text or a regular expression", inputSchema: { query: z.string().min(1), path: z.string().default("."), regex: z.boolean().default(false), caseSensitive: z.boolean().default(false), glob: z.string().optional(), maxResults: z.number().int().positive().max(5000).optional() }, annotations: { readOnlyHint: true, openWorldHint: false } }, async (input) => {
+      requireScope(principal, "workspace.read"); return asText(await this.workspace.searchText(input));
+    });
+    server.registerTool("apply_patch", { description: "Atomically create, uniquely replace, or delete files inside the coding workspace", inputSchema: { changes: z.array(workspaceChangeSchema).min(1).max(100), dryRun: z.boolean().default(false) }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } }, async ({ changes, dryRun }) => {
+      requireScope(principal, "workspace.write");
+      const result = await this.workspace.applyPatch({ changes, dryRun });
+      await this.audit.write({ correlationId: randomUUID(), action: "workspace.patch", principalId: principal.id, success: true, metadata: { dryRun, changes: result.changed } });
+      return asText(result);
+    });
+    server.registerTool("git_status", { description: "Read Git working-tree status for the coding workspace", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } }, async () => {
+      requireScope(principal, "workspace.read"); return asText(await this.workspace.gitStatus());
+    });
+    server.registerTool("git_diff", { description: "Read a bounded staged or unstaged Git diff", inputSchema: { staged: z.boolean().default(false), path: z.string().optional(), contextLines: z.number().int().nonnegative().max(20).default(3), maxBytes: z.number().int().positive().optional() }, annotations: { readOnlyHint: true, openWorldHint: false } }, async (input) => {
+      requireScope(principal, "workspace.read"); return asText(await this.workspace.gitDiff(input));
+    });
+    server.registerTool("git_log", { description: "Read bounded Git commit history for the coding workspace", inputSchema: { maxCount: z.number().int().positive().max(100).default(20), skip: z.number().int().nonnegative().default(0), path: z.string().optional() }, annotations: { readOnlyHint: true, openWorldHint: false } }, async (input) => {
+      requireScope(principal, "workspace.read"); return asText(await this.workspace.gitLog(input));
+    });
+    server.registerTool("git_show", { description: "Show a bounded Git revision and patch", inputSchema: { revision: z.string().default("HEAD"), maxBytes: z.number().int().positive().optional() }, annotations: { readOnlyHint: true, openWorldHint: false } }, async (input) => {
+      requireScope(principal, "workspace.read"); return asText(await this.workspace.gitShow(input));
+    });
+    server.registerTool("git_blame", { description: "Read bounded Git line attribution for one workspace file", inputSchema: { path: z.string().min(1), startLine: z.number().int().positive().default(1), endLine: z.number().int().positive().optional() }, annotations: { readOnlyHint: true, openWorldHint: false } }, async (input) => {
+      requireScope(principal, "workspace.read"); return asText(await this.workspace.gitBlame(input));
+    });
   }
 
   handlePost = async (req: Request, res: Response): Promise<void> => {

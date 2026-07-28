@@ -16,7 +16,7 @@
   <a href="README.md">English</a> | 简体中文
 </p>
 
-Secure Host MCP 通过 Streamable HTTP 将 Windows、Linux 或 macOS 主机终端开放给远程 MCP 客户端。它有意提供接近本机终端的强大能力：默认管理员令牌可以执行服务账户有权运行的任何命令、检查或启动已配置的隧道，以及请求提权操作。
+Secure Host MCP 通过 Streamable HTTP 将 Windows、Linux 或 macOS 主机终端和代码工作区开放给远程 MCP 客户端。它有意提供接近本机的强大能力：默认管理员令牌可以编辑代码、检查 Git、执行服务账户有权运行的任何命令、检查或启动已配置的隧道，以及请求提权操作。
 
 ## 下载独立发行包
 
@@ -44,7 +44,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 
 ```powershell
 npm install -g secure-host-mcp
-secure-host-mcp setup --public-url https://mcp.example.com
+secure-host-mcp setup --public-url https://mcp.example.com --workspace /srv/projects
 secure-host-mcp doctor
 secure-host-mcp start
 ```
@@ -61,7 +61,8 @@ secure-host-mcp start
 2. 检查 `cloudflared`；未安装时询问是否下载经过官方 SHA-256 摘要校验的版本。这里只安装程序，不会代替用户创建 Cloudflare 账户或隧道配置。
 3. 让用户选择自动生成初始令牌，或者手动输入任意非空令牌。令牌没有固定格式，纯数字、纯字母或混合形式均可。
 4. 明确提示：这个初始令牌同时是网页控制台管理员令牌，也是拥有完整权限的 MCP Bearer 连接 Token。
-5. 检测到公网 IP 后，自动显示由该 IP 组成的 MCP 地址、网页控制台地址以及 HTTP 明文传输警告。
+5. 询问允许远程编码工具访问的目录；默认使用应用数据目录下独立的 `workspace` 目录。
+6. 检测到公网 IP 后，自动显示由该 IP 组成的 MCP 地址、网页控制台地址以及 HTTP 明文传输警告。
 
 非交互式安装仍兼容自动化脚本：它会自动生成令牌，但不会自动安装 Cloudflare。新安装默认监听全部网络接口，只要主机防火墙、路由器和云安全组允许，远程客户端即可连接。
 
@@ -90,9 +91,39 @@ ChatGPT 中完整的可写 MCP 支持取决于账户或工作区方案，以及�
 
 ## 终端与后台任务
 
-主要 MCP 工具包括 `execute_command`、`start_job`、`job_status`、`read_job_output` 和 `cancel_job`。Windows 优先使用 PowerShell 7，否则使用 Windows PowerShell；Linux 默认使用 `/bin/bash`，也可以通过配置修改。
+主要 MCP 工具包括 `execute_command`、`start_job`、`job_status`、`read_job_output`、`write_job_input` 和 `cancel_job`。`write_job_input` 可用于需要读取 stdin 的交互式安装程序、REPL 与长时间任务。Windows 优先使用 PowerShell 7，否则使用 Windows PowerShell；Linux 默认使用 `/bin/bash`，也可以通过配置修改。
 
 命令不经过沙箱或白名单限制。除非确实需要完整的用户或 root 权限，否则请让服务运行在专用账户下。`execute_elevated` 默认采用失败关闭策略：只有进程本身已经提权，或已安装特权辅助进程时才可执行。`set_admin_mode` 只记录请求；服务重配置必须由已安装的服务适配器或本地 CLI 实际应用。
+
+## 远程代码工作区
+
+当 `coding.enabled` 为 `true` 时，MCP 还会提供：
+
+- `workspace_info`、`read_file`、`list_directory`、`list_files`、`search_text`
+- `apply_patch`
+- `git_status`、`git_diff`、`git_log`、`git_show`、`git_blame`
+
+这些工具使用 TypeScript 独立实现，不包含 Codex、Claude Code 或其他编程 Agent 运行时。`list_files` 和 `search_text` 使用有数量限制的 Node.js 文件系统操作；Git 工具通过参数数组调用主机的 `git`，不会把参数拼接到 Shell 命令中。
+
+直接文件工具只接受相对于工作区的路径，并拒绝绝对路径、`..` 穿越、NUL 字节与符号链接逃逸。不能把文件系统根目录或用户主目录直接设置为工作区。`apply_patch` 使用结构化的创建、替换和删除操作：替换内容必须仅匹配一次，可使用 `read_file` 返回的 SHA-256 防止覆盖并发修改；全部变更会在写入前完成验证，多文件提交失败时会回滚。
+
+`workspace.read` 允许读取文件、搜索和使用只读 Git 工具；`workspace.write` 允许调用 `apply_patch`。它们与 `command.run` 有意分离：命令执行仍是主机级能力，可以访问服务账户本身有权访问的所有位置。
+
+结构化补丁示例：
+
+```json
+{
+  "changes": [
+    {
+      "type": "replace",
+      "path": "src/index.ts",
+      "oldText": "const port = 3000;",
+      "newText": "const port = 8080;",
+      "expectedSha256": "read_file 返回的 SHA-256"
+    }
+  ]
+}
+```
 
 ## cloudflared 与 frpc
 
@@ -128,6 +159,7 @@ sudo secure-host-mcp helper
 - 管理员令牌拥有全部权限，可用于网页控制台、OAuth 授权确认页面以及直接 MCP Bearer 鉴权。
 - `~/.secure-host-mcp/tokens.json` 是管理员令牌和直接 MCP 连接 Token 的唯一注册表；OAuth 授权与辅助进程密钥单独保存在 `secrets.json`。POSIX 系统要求这两个文件的权限均为 `0600`，请妥善备份和保护。
 - 审计日志会有意以明文记录完整命令及 stdout/stderr。日志按日期和大小轮换，并在数据目录中保留 30 天。
+- 编码文件工具始终限制在 `coding.root` 内；这个边界不会限制主机级命令与提权工具。
 - MCP 与管理端默认监听全部网络接口。每个管理 API 请求都必须携带管理员 Bearer 令牌，写操作还必须携带页面 CSRF 令牌。
 - 公网 HTTP 不提供加密：鉴权可以控制访问权限，但无法阻止 Bearer 令牌、OAuth 授权码或管理流量被网络窃听。应优先使用 HTTPS 或可信 VPN。
 - 工具注解会要求兼容客户端在破坏性操作前进行确认，但主机端无法证明客户端确实向用户显示了确认界面。
@@ -135,6 +167,20 @@ sudo secure-host-mcp helper
 ## 配置
 
 设置 `SECURE_HOST_MCP_HOME` 可以更改数据目录。将 `config.example.json` 中需要的字段复制到自动生成的 `config.json`，然后重启服务。配置与密钥均采用原子写入。
+
+代码工作区默认启用。旧配置没有 `coding.root` 时使用 `<dataDir>/workspace`；如需访问已有仓库，请设置明确的项目父目录并重启：
+
+```json
+{
+  "coding": {
+    "enabled": true,
+    "root": "/srv/projects",
+    "maxReadBytes": 524288,
+    "maxSearchResults": 1000,
+    "maxPatchBytes": 1048576
+  }
+}
+```
 
 自动生成的 `tokens.json` 可以直接编辑：
 
@@ -153,7 +199,7 @@ sudo secure-host-mcp helper
 }
 ```
 
-修改 `adminToken` 即可轮换管理员令牌；向 `connectionTokens` 添加项目即可创建更多 MCP Bearer 连接 Token。手动添加的 Token 可以省略 `id`，服务会根据 Token 值派生稳定标识。Token 没有格式限制，但不能为空且不能重复。权限范围只能取自 `system.read`、`command.run`、`command.elevate`、`tunnel.read`、`tunnel.manage` 和 `admin.manage`。手动编辑后需要重启 Secure Host MCP。完整权限示例见 `tokens.example.json`。
+修改 `adminToken` 即可轮换管理员令牌；向 `connectionTokens` 添加项目即可创建更多 MCP Bearer 连接 Token。手动添加的 Token 可以省略 `id`，服务会根据 Token 值派生稳定标识。Token 没有格式限制，但不能为空且不能重复。权限范围只能取自 `system.read`、`command.run`、`command.elevate`、`workspace.read`、`workspace.write`、`tunnel.read`、`tunnel.manage` 和 `admin.manage`。手动编辑后需要重启 Secure Host MCP。完整权限示例见 `tokens.example.json`。
 
 如需仅本机访问，请在配置中明确将 `mcp.host` 和 `admin.host` 都设置为 `127.0.0.1`。新安装默认允许远程管理。
 

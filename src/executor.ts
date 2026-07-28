@@ -57,6 +57,17 @@ export class CommandExecutor {
 
   status(id: string): Record<string, unknown> { const job = this.requireJob(id); return { jobId: id, status: job.status, exitCode: job.exitCode, startedAt: new Date(job.startedAt).toISOString(), expiresAt: new Date(job.expiresAt).toISOString() }; }
   output(id: string, offset = 0): Record<string, unknown> { const job = this.requireJob(id); const combined = `STDOUT\n${job.stdout}\nSTDERR\n${job.stderr}`; const safeOffset = Math.max(0, Math.min(offset, combined.length)); return { jobId: id, offset: safeOffset, nextOffset: combined.length, data: combined.slice(safeOffset) }; }
+  async writeInput(id: string, data: string, close = false): Promise<Record<string, unknown>> {
+    const job = this.requireJob(id);
+    if (job.status !== "running" || job.process.stdin.destroyed) throw new AppError("JOB_STDIN_CLOSED", `stdin is closed for job: ${id}`, 409);
+    if (data) {
+      await new Promise<void>((resolve, reject) => {
+        job.process.stdin.write(data, "utf8", (error) => error ? reject(error) : resolve());
+      });
+    }
+    if (close) job.process.stdin.end();
+    return { jobId: id, bytesWritten: Buffer.byteLength(data), stdinClosed: close };
+  }
   cancel(id: string): void { const job = this.requireJob(id); this.killProcess(job.process); job.status = "cancelled"; }
   private requireJob(id: string): Job { const job = this.jobs.get(id); if (!job) throw new AppError("JOB_NOT_FOUND", `unknown job: ${id}`, 404); return job; }
   private killProcess(child: ChildProcessWithoutNullStreams): void { try { if (process.platform === "win32") spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }); else if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { child.kill("SIGKILL"); } }

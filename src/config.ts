@@ -36,6 +36,13 @@ const ConfigSchema = z.object({
   mcp: z.object({ host: z.string().default("0.0.0.0"), port: z.number().int().min(1).max(65535).default(8767) }),
   admin: z.object({ host: z.string().default("0.0.0.0"), port: z.number().int().min(1).max(65535).default(8768) }),
   execution: z.object({ maxTimeoutMs: z.number().int().positive().default(120000), maxOutputBytes: z.number().int().positive().default(1048576), maxJobs: z.number().int().positive().default(8), jobTtlMs: z.number().int().positive().default(3600000), shell: z.string().optional() }),
+  coding: z.object({
+    enabled: z.boolean().default(true),
+    root: z.string().min(1).refine((value) => path.isAbsolute(value), "coding root must be an absolute path").optional(),
+    maxReadBytes: z.number().int().positive().max(16 * 1024 * 1024).default(512 * 1024),
+    maxSearchResults: z.number().int().positive().max(5000).default(1000),
+    maxPatchBytes: z.number().int().positive().max(16 * 1024 * 1024).default(1024 * 1024)
+  }).default({}),
   audit: z.object({ retentionDays: z.number().int().positive().default(30), maxFileBytes: z.number().int().positive().default(25 * 1024 * 1024) }),
   auth: z.object({ externalIssuer: z.string().url().optional(), externalAudience: z.string().optional() }).default({}),
   tunnels: z.object({ cloudflaredConfig: z.string().optional(), frpcConfig: z.string().optional(), proxyUrl: z.string().optional() }).default({}),
@@ -95,11 +102,14 @@ export class ConfigStore {
   }
 
   async loadConfig(): Promise<AppConfig> {
-    try { return ConfigSchema.parse(JSON.parse(await readFile(this.configPath, "utf8"))); }
+    let config: AppConfig;
+    try { config = ConfigSchema.parse(JSON.parse(await readFile(this.configPath, "utf8"))); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      return ConfigSchema.parse({ dataDir: this.dataDir, mcp: {}, admin: {}, execution: {}, audit: {} });
+      config = ConfigSchema.parse({ dataDir: this.dataDir, mcp: {}, admin: {}, execution: {}, coding: {}, audit: {} });
     }
+    config.coding.root ??= path.join(config.dataDir, "workspace");
+    return config;
   }
 
   async saveConfig(config: AppConfig): Promise<void> { await atomicWrite(this.configPath, ConfigSchema.parse(config)); }

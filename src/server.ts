@@ -14,6 +14,7 @@ import { McpHost } from "./mcp.js";
 import { ALL_SCOPES, AppError } from "./types.js";
 import { TunnelManager, type TunnelInspection } from "./tunnels.js";
 import { PrivilegeClient } from "./privilege.js";
+import { CodingWorkspace } from "./workspace.js";
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 const ADMIN_CSRF_PLACEHOLDER = "__SECURE_HOST_MCP_CSRF_TOKEN__";
@@ -32,7 +33,7 @@ const LOG_VIEW_MAX_BYTES = 64 * 1024;
 interface AdminStatus {
   system: ReturnType<CommandExecutor["systemInfo"]>;
   tunnels: TunnelInspection;
-  config: Pick<AppConfig, "mcp" | "admin" | "publicBaseUrl" | "network" | "legacySse" | "adminMode">;
+  config: Pick<AppConfig, "mcp" | "admin" | "publicBaseUrl" | "network" | "coding" | "legacySse" | "adminMode">;
   paths: { dataDir: string; configFile: string; auditDirectory: string };
 }
 
@@ -41,7 +42,7 @@ function bearer(req: Request): string { const value = req.headers.authorization;
 
 export async function createApplication(store = new ConfigStore()): Promise<{ mcpApp: express.Express; adminApp: express.Express; config: AppConfig; close: () => Promise<void> }> {
   const config = await store.loadConfig(); const auth = new AuthService(config, store); await auth.initialize(); const audit = new AuditLog(config); await audit.prune();
-  const executor = new CommandExecutor(config); const tunnels = new TunnelManager(config); const mcp = new McpHost(config, executor, tunnels, audit, new PrivilegeClient(config, store));
+  const executor = new CommandExecutor(config); const tunnels = new TunnelManager(config); const workspace = new CodingWorkspace(config); if (config.coding.enabled) await workspace.initialize(); const mcp = new McpHost(config, executor, tunnels, audit, new PrivilegeClient(config, store), workspace);
   const mcpApp = express(); const adminApp = express();
   for (const app of [mcpApp, adminApp]) { app.disable("x-powered-by"); app.use(express.json({ limit: "1mb" })); app.use(express.urlencoded({ extended: false })); }
   const attempts = new Map<string, { count: number; resetAt: number }>();
@@ -86,7 +87,7 @@ export async function createApplication(store = new ConfigStore()): Promise<{ mc
     const status: AdminStatus = {
       system: executor.systemInfo(),
       tunnels: await tunnels.inspect(),
-      config: { mcp: config.mcp, admin: config.admin, publicBaseUrl: config.publicBaseUrl, network: config.network, legacySse: config.legacySse, adminMode: config.adminMode },
+      config: { mcp: config.mcp, admin: config.admin, publicBaseUrl: config.publicBaseUrl, network: config.network, coding: config.coding, legacySse: config.legacySse, adminMode: config.adminMode },
       paths: { dataDir: config.dataDir, configFile: store.configPath, auditDirectory }
     };
     res.json(status);
