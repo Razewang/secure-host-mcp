@@ -4,7 +4,16 @@
   "publicBaseUrl": "https://mcp.example.com",
   "mcp": { "host": "0.0.0.0", "port": 8767 },
   "admin": { "host": "0.0.0.0", "port": 8768 },
-  "execution": { "maxTimeoutMs": 120000, "maxOutputBytes": 1048576, "maxJobs": 8, "jobTtlMs": 3600000 },
+  "execution": {
+    "maxTimeoutMs": 120000,
+    "maxOutputBytes": 1048576,
+    "maxJobs": 8,
+    "jobTtlMs": 3600000,
+    "maxTerminals": 4,
+    "maxTerminalOutputBytes": 1048576,
+    "terminalIdleTtlMs": 1800000,
+    "runtimeHistoryLimit": 100
+  },
   "coding": {
     "enabled": true,
     "root": "/srv/projects",
@@ -12,7 +21,12 @@
     "maxSearchResults": 1000,
     "maxPatchBytes": 1048576
   },
-  "audit": { "retentionDays": 30, "maxFileBytes": 26214400 },
+  "audit": {
+    "retentionDays": 30,
+    "maxFileBytes": 26214400,
+    "contentMode": "redacted",
+    "sensitiveKeys": ["authorization", "password", "passwd", "token", "secret", "api_key", "apikey", "private_key"]
+  },
   "auth": {},
   "network": { "hasPublicIp": true, "publicAddress": "203.0.113.10" },
   "tunnels": { "frpcConfig": "/etc/frp/frpc.toml", "proxyUrl": "socks5://127.0.0.1:1080" },

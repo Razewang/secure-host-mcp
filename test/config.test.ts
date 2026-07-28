@@ -7,6 +7,7 @@ import { ConfigStore } from "../src/config.js";
 
 const renameControl = vi.hoisted(() => ({
   enabled: false,
+  failFirstWithEperm: false,
   calls: 0,
   signalFirst: undefined as (() => void) | undefined,
   firstBlocked: Promise.resolve()
@@ -18,6 +19,9 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     ...original,
     rename: async (...args: Parameters<typeof original.rename>) => {
       renameControl.calls += 1;
+      if (renameControl.failFirstWithEperm && renameControl.calls === 1) {
+        throw Object.assign(new Error("simulated Windows rename contention"), { code: "EPERM" });
+      }
       if (renameControl.enabled && renameControl.calls === 1) {
         renameControl.signalFirst?.();
         await renameControl.firstBlocked;
@@ -30,6 +34,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 const dirs: string[] = [];
 afterEach(async () => {
   renameControl.enabled = false;
+  renameControl.failFirstWithEperm = false;
   renameControl.calls = 0;
   renameControl.signalFirst = undefined;
   renameControl.firstBlocked = Promise.resolve();
@@ -48,6 +53,18 @@ describe("ConfigStore", () => {
       maxSearchResults: 1000,
       maxPatchBytes: 1048576
     });
+  });
+
+  it("provides bounded PTY and redacted-audit defaults", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir);
+    const config = await new ConfigStore(dir).loadConfig();
+    expect(config.execution).toMatchObject({
+      maxTerminals: 4,
+      maxTerminalOutputBytes: 1048576,
+      terminalIdleTtlMs: 1800000,
+      runtimeHistoryLimit: 100
+    });
+    expect(config.audit).toMatchObject({ contentMode: "redacted" });
   });
 
   it("defaults new installations to public listeners", async () => {
@@ -103,5 +120,14 @@ describe("ConfigStore", () => {
 
     await expect(Promise.all([firstSave, secondSave])).resolves.toBeDefined();
     expect((await store.loadSecrets()).helperKey).toBe("second");
+  });
+
+  it.skipIf(process.platform !== "win32")("retries transient Windows atomic-rename contention", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir);
+    const store = new ConfigStore(dir);
+    const config = await store.loadConfig();
+    renameControl.failFirstWithEperm = true;
+    await expect(store.saveConfig(config)).resolves.toBeUndefined();
+    expect(renameControl.calls).toBe(2);
   });
 });

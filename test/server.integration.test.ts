@@ -22,7 +22,10 @@ const INTEGRATION_TIMEOUT_MS = 20000;
 describe("HTTP integration", () => {
   it("authenticates an MCP client and keeps admin routes off the public app", { timeout: INTEGRATION_TIMEOUT_MS }, async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-")); dirs.push(dir); const store = new ConfigStore(dir); const admin = "integration-admin";
-    await store.saveTokenConfig({ version: 1, adminToken: admin, connectionTokens: [{ id: "coding-reader", token: "reader-token", label: "Coding reader", scopes: ["workspace.read"] }] });
+    await store.saveTokenConfig({ version: 1, adminToken: admin, connectionTokens: [
+      { id: "coding-reader", token: "reader-token", label: "Coding reader", scopes: ["workspace.read"] },
+      { id: "runtime-owner", token: "runtime-token", label: "Runtime owner", scopes: ["system.read", "command.run", "workspace.read"] }
+    ] });
     const created = await createApplication(store); const { port } = await listen(created.mcpApp);
     expect((await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`)).status).toBe(200);
     expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(404);
@@ -30,7 +33,14 @@ describe("HTTP integration", () => {
     await writeFile(path.join(dir, "workspace", "hello.ts"), "export const hello = true;\n", "utf8");
     await client.connect(transport);
     const tools = await client.listTools();
-    expect(tools.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["execute_command", "read_file", "apply_patch", "git_status"]));
+    expect(tools.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["execute_command", "create_terminal", "runtime_snapshot", "read_file", "apply_patch", "git_status"]));
+    const runtimeTool = tools.tools.find((tool) => tool.name === "runtime_snapshot");
+    expect(runtimeTool?._meta).toMatchObject({ ui: { resourceUri: "ui://secure-host/runtime-status-v1.html" } });
+    const resources = await client.listResources();
+    expect(resources.resources.map((resource) => resource.uri)).toContain("ui://secure-host/runtime-status-v1.html");
+    const runtimeResource = await client.readResource({ uri: "ui://secure-host/runtime-status-v1.html" });
+    expect(runtimeResource.contents[0]?.mimeType).toContain("text/html");
+    expect(String(runtimeResource.contents[0] && "text" in runtimeResource.contents[0] ? runtimeResource.contents[0].text : "")).toContain("Secure Host");
     const file = await client.callTool({ name: "read_file", arguments: { path: "hello.ts" } });
     const rawContent: unknown = file.content;
     expect(Array.isArray(rawContent)).toBe(true);
@@ -42,12 +52,40 @@ describe("HTTP integration", () => {
     const patched = await client.callTool({ name: "apply_patch", arguments: { changes: [{ type: "replace", path: "hello.ts", oldText: "true", newText: "false", expectedSha256: originalSha }] } });
     expect(patched.isError).not.toBe(true);
     expect(await readFile(path.join(dir, "workspace", "hello.ts"), "utf8")).toContain("hello = false");
+    const terminal = await client.callTool({ name: "create_terminal", arguments: {} });
+    const terminalId = isRecord(terminal.structuredContent) ? String(terminal.structuredContent.terminalId) : "";
+    expect(terminalId).toMatch(/^[0-9a-f-]{36}$/);
     await client.close();
+
+    const resumedClient = new Client({ name: "resume-test", version: "1" });
+    const resumedTransport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: `Bearer ${admin}` } } });
+    await resumedClient.connect(resumedTransport);
+    const snapshot = await resumedClient.callTool({ name: "runtime_snapshot", arguments: {} });
+    expect(isRecord(snapshot.structuredContent) ? snapshot.structuredContent.generatedAt : undefined).toBeTypeOf("string");
+    const terminalRecords = isRecord(snapshot.structuredContent) && Array.isArray(snapshot.structuredContent.terminals) ? snapshot.structuredContent.terminals : [];
+    expect(terminalRecords.some((record) => isRecord(record) && record.id === terminalId && record.ownerId === "admin")).toBe(true);
+    await resumedClient.callTool({ name: "close_terminal", arguments: { terminalId } });
+    await resumedClient.close();
+
+    const ownerClient = new Client({ name: "owner-test", version: "1" });
+    const ownerTransport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: "Bearer runtime-token" } } });
+    await ownerClient.connect(ownerTransport);
+    const ownerTerminal = await ownerClient.callTool({ name: "create_terminal", arguments: {} });
+    const ownerTerminalId = isRecord(ownerTerminal.structuredContent) ? String(ownerTerminal.structuredContent.terminalId) : "";
+    const ownerSnapshot = await ownerClient.callTool({ name: "runtime_snapshot", arguments: {} });
+    const ownerRecords = isRecord(ownerSnapshot.structuredContent) && Array.isArray(ownerSnapshot.structuredContent.terminals) ? ownerSnapshot.structuredContent.terminals : [];
+    expect(ownerRecords.some((record) => isRecord(record) && record.id === ownerTerminalId && !("ownerId" in record))).toBe(true);
+    expect(isRecord(ownerSnapshot.structuredContent) ? ownerSnapshot.structuredContent.workspace : undefined).toBeTypeOf("object");
+    await ownerClient.callTool({ name: "close_terminal", arguments: { terminalId: ownerTerminalId } });
+    await ownerClient.close();
 
     const readClient = new Client({ name: "read-only-test", version: "1" });
     const readTransport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), { requestInit: { headers: { authorization: "Bearer reader-token" } } });
     await readClient.connect(readTransport);
     await expect(readClient.callTool({ name: "read_file", arguments: { path: "hello.ts" } })).resolves.toBeDefined();
+    const deniedSnapshot = await readClient.callTool({ name: "runtime_snapshot", arguments: {} });
+    expect(deniedSnapshot.isError).toBe(true);
+    expect(JSON.stringify(deniedSnapshot.content)).toContain("scope required: system.read");
     const denied = await readClient.callTool({ name: "apply_patch", arguments: { changes: [{ type: "create", path: "denied.ts", content: "no" }] } });
     expect(denied.isError).toBe(true);
     expect(JSON.stringify(denied.content)).toContain("scope required: workspace.write");
@@ -83,13 +121,15 @@ describe("HTTP integration", () => {
     const csrf = JSON.parse(csrfLiteral ?? '""') as string;
     expect((await fetch(`http://127.0.0.1:${port}/api/status`)).status).toBe(401);
     const statusResponse = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { authorization: `Bearer ${admin}` } });
-    const status = await statusResponse.json() as { system: Record<string, unknown>; tunnels: { cloudflared: { managedRunning: unknown; lifecycle: unknown } }; config: { coding: { enabled: boolean } }; paths: Record<string, string> };
+    const status = await statusResponse.json() as { system: Record<string, unknown>; runtime: { jobs: unknown[]; terminals: unknown[] }; tunnels: { cloudflared: { managedRunning: unknown; lifecycle: unknown } }; config: { coding: { enabled: boolean } }; paths: Record<string, string> };
     expect(statusResponse.status).toBe(200);
     expect(typeof status.system.hostname).toBe("string");
     expect(typeof status.system.cpus).toBe("number");
     expect(typeof status.system.totalMemory).toBe("number");
     expect(typeof status.system.node).toBe("string");
     expect(status.config.coding.enabled).toBe(true);
+    expect(status.runtime.jobs).toEqual([]);
+    expect(status.runtime.terminals).toEqual([]);
     expect(typeof status.tunnels.cloudflared.managedRunning).toBe("boolean");
     expect(status.tunnels.cloudflared.lifecycle).toBeTypeOf("object");
     const lifecycle = status.tunnels.cloudflared.lifecycle as Record<string, unknown>;

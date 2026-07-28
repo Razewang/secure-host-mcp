@@ -100,7 +100,13 @@ Full write-capable MCP support in ChatGPT depends on the account/workspace plan 
 
 ## Terminal and jobs
 
-The main MCP tools are `execute_command`, `start_job`, `job_status`, `read_job_output`, `write_job_input`, and `cancel_job`. `write_job_input` supports interactive installers, REPLs, and other long-running jobs that read stdin. Windows uses PowerShell 7 when available and Windows PowerShell otherwise. Linux uses `/bin/bash` unless configured differently.
+The main one-shot and background MCP tools are `execute_command`, `start_job`, `job_status`, `read_job_output`, `write_job_input`, and `cancel_job`. For a real persistent PTY, use `create_terminal`, `read_terminal`, `write_terminal`, `resize_terminal`, `interrupt_terminal`, and `close_terminal`. Windows uses ConPTY with PowerShell 7 when available and Windows PowerShell otherwise; Linux and macOS use `/bin/bash` unless configured differently.
+
+PTY output is kept in a bounded ring buffer with monotonic byte offsets. If a requested offset has expired, `read_terminal` returns the current `startOffset` and `droppedBytes` so clients never mistake truncated output for a complete transcript. Terminals remain alive across MCP disconnects until they exit, are closed, or reach their idle TTL. A Secure Host process restart terminates managed processes and restores only redacted summaries marked `interrupted`; it does not claim that operating-system processes survived.
+
+Jobs and terminals belong to the authenticated token or OAuth principal that created them. A normal `command.run` principal can access only its own records; an `admin.manage` principal can inspect and stop all records. Unauthorized lookup returns the same not-found error as an unknown identifier.
+
+`runtime_snapshot` is a read-only `system.read` tool. It always returns host status, includes visible Job/PTY records when the caller also has `command.run`, and includes workspace/Git state when the caller also has `workspace.read`. Clients that support MCP Apps can render the versioned `ui://secure-host/runtime-status-v1.html` resource as a read-only status card. Other clients receive the same text and `structuredContent`; the card has no command, termination, approval, or polling controls.
 
 Commands are not sandboxed or allowlisted. Run the service under a dedicated account unless full user/root access is intentional. `execute_elevated` fails closed until the process is already elevated or a privileged helper is installed. `set_admin_mode` records the request; service reconfiguration must be applied by an installed service adapter or the local CLI.
 
@@ -167,7 +173,7 @@ The helper listens only on `127.0.0.1:8769`, authenticates with a random key fro
 
 - The configured administrator token has all scopes and is accepted by the web console, OAuth approval page, and direct MCP Bearer authentication.
 - `~/.secure-host-mcp/tokens.json` is the single registry for the administrator token and direct MCP connection tokens. OAuth grants and helper secrets live separately in `secrets.json`. Both files must use mode `0600` on POSIX. Back them up and protect them.
-- Audit logs intentionally contain complete commands and stdout/stderr in plaintext. They rotate by size/day and are retained for 30 days under the data directory.
+- Audit logs default to `audit.contentMode: "redacted"` and remove configured token values, Bearer credentials, helper secrets, and common password/token/secret/key assignments before disk writes. `metadata` stores only outcome, byte counts, and truncation metadata; `full` stores command/output content verbatim and can leak credentials. Logs rotate by size/day and are retained for 30 days under the data directory. PTY input content is never logged by default—only its byte count.
 - Coding file tools remain confined to `coding.root`; this boundary does not restrict the host-level command and elevation tools.
 - MCP and administration listen on all interfaces by default. Every administration API request requires the administrator bearer token, and mutations also require the page CSRF token.
 - Public HTTP is not encrypted: authentication controls access but cannot prevent interception of bearer tokens, OAuth codes, or administration traffic. Prefer HTTPS or a trusted VPN.
@@ -190,6 +196,25 @@ The coding workspace is enabled by default. Existing installations without a `co
   }
 }
 ```
+
+Runtime and audit limits can be adjusted independently:
+
+```json
+{
+  "execution": {
+    "maxTerminals": 4,
+    "maxTerminalOutputBytes": 1048576,
+    "terminalIdleTtlMs": 1800000,
+    "runtimeHistoryLimit": 100
+  },
+  "audit": {
+    "contentMode": "redacted",
+    "sensitiveKeys": ["authorization", "password", "token", "secret", "api_key", "private_key"]
+  }
+}
+```
+
+The redacted runtime summary is stored atomically as `runtime-state.json` in the application data directory with restricted POSIX permissions. It is context for auditing and reconnects, not cross-restart process supervision.
 
 The generated `tokens.json` is intentionally editable:
 

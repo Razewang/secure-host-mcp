@@ -510,6 +510,34 @@ export class CodingWorkspace {
     return { status: result.output, truncated: result.truncated };
   }
 
+  async snapshot(): Promise<Record<string, unknown>> {
+    try {
+      const [head, status] = await Promise.all([
+        this.runGit(["rev-parse", "HEAD"], 1024),
+        this.runGit(["status", "--porcelain=v1", "--branch"], Math.min(this.config.coding.maxReadBytes, 64 * 1024))
+      ]);
+      const lines = status.output.split(/\r?\n/).filter(Boolean);
+      const branchLine = lines[0]?.startsWith("## ") ? lines[0].slice(3) : "";
+      return {
+        enabled: true,
+        root: this.root,
+        git: {
+          available: true,
+          head: head.output.trim(),
+          branch: branchLine.split("...")[0] || branchLine || undefined,
+          dirty: lines.slice(branchLine ? 1 : 0).length > 0,
+          status: status.output,
+          truncated: status.truncated
+        }
+      };
+    } catch (error) {
+      if (error instanceof AppError && (error.code === "GIT_ERROR" || error.code === "GIT_NOT_INSTALLED")) {
+        return { enabled: true, root: this.root, git: { available: false, error: error.message } };
+      }
+      throw error;
+    }
+  }
+
   async gitDiff(input: { staged?: boolean; path?: string; contextLines?: number; maxBytes?: number }): Promise<Record<string, unknown>> {
     const args = ["diff", "--no-ext-diff", `--unified=${Math.max(0, Math.min(input.contextLines ?? 3, 20))}`];
     if (input.staged) args.push("--cached");

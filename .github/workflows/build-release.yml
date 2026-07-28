@@ -119,6 +119,12 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: npm run build
+      - name: Verify generated MCP App is current
+        shell: bash
+        run: git diff --exit-code -- web/runtime-status.html
+      - name: Smoke-test native PTY
+        run: npm run test:pty
       - uses: actions/setup-dotnet@v5
         if: runner.os == 'Windows'
         with:

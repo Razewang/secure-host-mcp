@@ -91,7 +91,13 @@ ChatGPT 中完整的可写 MCP 支持取决于账户或工作区方案，以及�
 
 ## 终端与后台任务
 
-主要 MCP 工具包括 `execute_command`、`start_job`、`job_status`、`read_job_output`、`write_job_input` 和 `cancel_job`。`write_job_input` 可用于需要读取 stdin 的交互式安装程序、REPL 与长时间任务。Windows 优先使用 PowerShell 7，否则使用 Windows PowerShell；Linux 默认使用 `/bin/bash`，也可以通过配置修改。
+单次命令和后台任务的主要 MCP 工具包括 `execute_command`、`start_job`、`job_status`、`read_job_output`、`write_job_input` 和 `cancel_job`。如需真正持久的 PTY，可使用 `create_terminal`、`read_terminal`、`write_terminal`、`resize_terminal`、`interrupt_terminal` 和 `close_terminal`。Windows 使用 ConPTY，并优先选择 PowerShell 7，否则使用 Windows PowerShell；Linux 与 macOS 默认使用 `/bin/bash`，也可以通过配置修改。
+
+PTY 输出保存在有界环形缓冲区中，并使用单调递增的字节游标。请求的游标已经过期时，`read_terminal` 会返回当前 `startOffset` 与 `droppedBytes`，避免客户端把截断输出误认为完整记录。MCP 断开后，终端仍会继续运行，直到进程退出、被关闭或达到空闲 TTL。Secure Host 进程重启会终止其管理的进程，只恢复经过脱敏并标记为 `interrupted` 的摘要，不会声称底层进程仍然存活。
+
+Job 与终端归创建它们的 Token 或 OAuth 主体所有。普通 `command.run` 主体只能访问自己的记录；具有 `admin.manage` 的主体可以查看和停止全部记录。越权查询与不存在的标识统一返回同一种未找到错误。
+
+`runtime_snapshot` 是只读的 `system.read` 工具。它始终返回主机状态；调用者同时拥有 `command.run` 时返回其可见的 Job/PTY 记录，同时拥有 `workspace.read` 时返回工作区与 Git 状态。支持 MCP Apps 的客户端还可以通过版本化资源 `ui://secure-host/runtime-status-v1.html` 渲染只读状态卡片；其他客户端仍会收到相同的文本与 `structuredContent`。该卡片不包含执行、终止、审批或后台轮询操作。
 
 命令不经过沙箱或白名单限制。除非确实需要完整的用户或 root 权限，否则请让服务运行在专用账户下。`execute_elevated` 默认采用失败关闭策略：只有进程本身已经提权，或已安装特权辅助进程时才可执行。`set_admin_mode` 只记录请求；服务重配置必须由已安装的服务适配器或本地 CLI 实际应用。
 
@@ -158,7 +164,7 @@ sudo secure-host-mcp helper
 
 - 管理员令牌拥有全部权限，可用于网页控制台、OAuth 授权确认页面以及直接 MCP Bearer 鉴权。
 - `~/.secure-host-mcp/tokens.json` 是管理员令牌和直接 MCP 连接 Token 的唯一注册表；OAuth 授权与辅助进程密钥单独保存在 `secrets.json`。POSIX 系统要求这两个文件的权限均为 `0600`，请妥善备份和保护。
-- 审计日志会有意以明文记录完整命令及 stdout/stderr。日志按日期和大小轮换，并在数据目录中保留 30 天。
+- 审计日志默认使用 `audit.contentMode: "redacted"`，在落盘前隐藏已配置 Token、Bearer 凭据、辅助进程密钥，以及常见 password/token/secret/key 赋值。`metadata` 只保存结果、字节数和截断元数据；`full` 会原样保存命令与输出，可能泄露凭据。日志按日期和大小轮换，并在数据目录中保留 30 天。PTY 输入正文默认永不记录，只记录写入字节数。
 - 编码文件工具始终限制在 `coding.root` 内；这个边界不会限制主机级命令与提权工具。
 - MCP 与管理端默认监听全部网络接口。每个管理 API 请求都必须携带管理员 Bearer 令牌，写操作还必须携带页面 CSRF 令牌。
 - 公网 HTTP 不提供加密：鉴权可以控制访问权限，但无法阻止 Bearer 令牌、OAuth 授权码或管理流量被网络窃听。应优先使用 HTTPS 或可信 VPN。
@@ -181,6 +187,25 @@ sudo secure-host-mcp helper
   }
 }
 ```
+
+运行时和审计限制可以分别调整：
+
+```json
+{
+  "execution": {
+    "maxTerminals": 4,
+    "maxTerminalOutputBytes": 1048576,
+    "terminalIdleTtlMs": 1800000,
+    "runtimeHistoryLimit": 100
+  },
+  "audit": {
+    "contentMode": "redacted",
+    "sensitiveKeys": ["authorization", "password", "token", "secret", "api_key", "private_key"]
+  }
+}
+```
+
+经过脱敏的运行时摘要会以原子写入方式保存在应用数据目录的 `runtime-state.json` 中，并在 POSIX 上使用受限权限。它用于审计和重连上下文，不是跨重启进程托管。
 
 自动生成的 `tokens.json` 可以直接编辑：
 

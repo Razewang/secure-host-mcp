@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
@@ -11,12 +15,16 @@ import { requireScope } from "./auth.js";
 import type { AppConfig } from "./config.js";
 import type { CommandExecutor } from "./executor.js";
 import { isProcessElevated } from "./executor.js";
-import type { Principal } from "./types.js";
+import { AppError, type Principal } from "./types.js";
 import type { TunnelManager } from "./tunnels.js";
 import type { PrivilegeClient } from "./privilege.js";
 import type { CodingWorkspace } from "./workspace.js";
+import type { TerminalManager } from "./terminal.js";
+import type { RuntimeAccess, RuntimeRecord } from "./runtime.js";
 
 type Transport = StreamableHTTPServerTransport;
+const moduleDirectory = dirname(fileURLToPath(import.meta.url));
+const RUNTIME_STATUS_URI = "ui://secure-host/runtime-status-v1.html";
 const commandSchema = { command: z.string().min(1), cwd: z.string().optional(), env: z.record(z.string()).optional(), timeoutMs: z.number().int().positive().optional() };
 const asText = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
@@ -31,7 +39,7 @@ const workspaceChangeSchema = z.discriminatedUnion("type", [
 export class McpHost {
   private readonly transports = new Map<string, Transport>();
   private readonly legacyTransports = new Map<string, SSEServerTransport>();
-  constructor(private readonly config: AppConfig, private readonly executor: CommandExecutor, private readonly tunnels: TunnelManager, private readonly audit: AuditLog, private readonly privilege: PrivilegeClient, private readonly workspace: CodingWorkspace) {}
+  constructor(private readonly config: AppConfig, private readonly executor: CommandExecutor, private readonly terminals: TerminalManager, private readonly tunnels: TunnelManager, private readonly audit: AuditLog, private readonly privilege: PrivilegeClient, private readonly workspace: CodingWorkspace) {}
 
   private createServer(principal: Principal): McpServer {
     const server = new McpServer({ name: "secure-host-mcp", version: packageVersion() });
@@ -39,11 +47,13 @@ export class McpHost {
     server.registerTool("execute_command", { description: "Execute one command as the MCP service account", inputSchema: commandSchema, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async (input) => {
       requireScope(principal, "command.run"); const result = await this.executor.execute(input); await this.audit.write({ correlationId: result.correlationId, action: "command.execute", principalId: principal.id, success: result.exitCode === 0, command: input.command, stdout: result.stdout, stderr: result.stderr, metadata: { exitCode: result.exitCode, timedOut: result.timedOut } }); return asText(result);
     });
-    server.registerTool("start_job", { description: "Start a tracked background command", inputSchema: commandSchema, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async (input) => { requireScope(principal, "command.run"); const result = await this.executor.start(input, async (completed) => { await this.audit.write({ correlationId: completed.correlationId, action: "job.complete", principalId: principal.id, success: completed.exitCode === 0, command: input.command, stdout: completed.stdout, stderr: completed.stderr, metadata: { exitCode: completed.exitCode, truncated: completed.truncated } }); }); await this.audit.write({ correlationId: result.correlationId, action: "job.start", principalId: principal.id, success: true, command: input.command }); return asText(result); });
-    server.registerTool("job_status", { description: "Read tracked background job status", inputSchema: { jobId: z.string().uuid() }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ jobId }) => { requireScope(principal, "command.run"); return asText(this.executor.status(jobId)); });
-    server.registerTool("read_job_output", { description: "Read background job output from an offset", inputSchema: { jobId: z.string().uuid(), offset: z.number().int().nonnegative().default(0) }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ jobId, offset }) => { requireScope(principal, "command.run"); return asText(this.executor.output(jobId, offset)); });
-    server.registerTool("write_job_input", { description: "Write UTF-8 input to a running background job and optionally close stdin", inputSchema: { jobId: z.string().uuid(), data: z.string().default(""), close: z.boolean().default(false) }, annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } }, async ({ jobId, data, close }) => { requireScope(principal, "command.run"); return asText(await this.executor.writeInput(jobId, data, close)); });
-    server.registerTool("cancel_job", { description: "Cancel a tracked background job", inputSchema: { jobId: z.string().uuid() }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false } }, async ({ jobId }) => { requireScope(principal, "command.run"); this.executor.cancel(jobId); await this.audit.write({ correlationId: randomUUID(), action: "job.cancel", principalId: principal.id, success: true, metadata: { jobId } }); return asText({ cancelled: true, jobId }); });
+    server.registerTool("start_job", { description: "Start a tracked background command", inputSchema: commandSchema, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async (input) => { requireScope(principal, "command.run"); const result = await this.executor.start(input, async (completed) => { await this.audit.write({ correlationId: completed.correlationId, action: "job.complete", principalId: principal.id, success: completed.exitCode === 0, command: input.command, stdout: completed.stdout, stderr: completed.stderr, metadata: { exitCode: completed.exitCode, truncated: completed.truncated } }); }, this.runtimeAccess(principal)); await this.audit.write({ correlationId: result.correlationId, action: "job.start", principalId: principal.id, success: true, command: input.command }); return asText(result); });
+    server.registerTool("job_status", { description: "Read tracked background job status", inputSchema: { jobId: z.string().uuid() }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ jobId }) => { requireScope(principal, "command.run"); return asText(await this.runtimeOperation(principal, "job.status", jobId, () => this.executor.status(jobId, this.runtimeAccess(principal)))); });
+    server.registerTool("read_job_output", { description: "Read background job output from an offset", inputSchema: { jobId: z.string().uuid(), offset: z.number().int().nonnegative().default(0) }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ jobId, offset }) => { requireScope(principal, "command.run"); return asText(await this.runtimeOperation(principal, "job.read", jobId, () => this.executor.output(jobId, offset, this.runtimeAccess(principal)))); });
+    server.registerTool("write_job_input", { description: "Write UTF-8 input to a running background job and optionally close stdin", inputSchema: { jobId: z.string().uuid(), data: z.string().default(""), close: z.boolean().default(false) }, annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } }, async ({ jobId, data, close }) => { requireScope(principal, "command.run"); return asText(await this.runtimeOperation(principal, "job.write", jobId, () => this.executor.writeInput(jobId, data, close, this.runtimeAccess(principal)))); });
+    server.registerTool("cancel_job", { description: "Cancel a tracked background job", inputSchema: { jobId: z.string().uuid() }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false } }, async ({ jobId }) => { requireScope(principal, "command.run"); await this.runtimeOperation(principal, "job.cancel", jobId, () => this.executor.cancel(jobId, this.runtimeAccess(principal))); await this.audit.write({ correlationId: randomUUID(), action: "job.cancel", principalId: principal.id, success: true, metadata: { jobId } }); return asText({ cancelled: true, jobId }); });
+    this.registerTerminalTools(server, principal);
+    this.registerRuntimeSnapshot(server, principal);
     server.registerTool("execute_elevated", { description: "Execute a command through administrator mode or the privileged helper", inputSchema: commandSchema, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async (input) => { requireScope(principal, "command.elevate"); const result = isProcessElevated() ? await this.executor.execute({ ...input, elevated: true }) : await this.privilege.execute({ ...input, elevated: true }); await this.audit.write({ correlationId: result.correlationId, action: "command.elevated", principalId: principal.id, success: result.exitCode === 0, command: input.command, stdout: result.stdout, stderr: result.stderr }); return asText(result); });
     server.registerTool("set_admin_mode", { description: "Restart the whole MCP as root/SYSTEM through the privileged helper, or request local service-account restoration.", inputSchema: { enabled: z.boolean(), acknowledgement: z.literal("I understand this gives the Agent full host control") }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async ({ enabled }) => { requireScope(principal, "admin.manage"); const correlationId = randomUUID(); await this.audit.write({ correlationId, action: "admin-mode.request", principalId: principal.id, success: true, metadata: { enabled } }); if (!enabled) return asText({ requested: false, enabled, message: "Safe privilege drop requires restoring the configured systemd/Windows Service account locally, then restarting." }); if (isProcessElevated()) return asText({ requested: false, enabled: true, message: "This MCP process is already elevated." }); await this.privilege.restartAsAdministrator(); return asText({ requested: true, enabled: true, message: "The privileged helper accepted the request; this MCP instance will restart elevated." }); });
     if (this.config.coding.enabled) this.registerCodingTools(server, principal);
@@ -51,6 +61,120 @@ export class McpHost {
     server.registerTool("tunnel_start", { description: "Start a configured tunnel client", inputSchema: { kind: z.enum(["cloudflared", "frpc"]) }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async ({ kind }) => { requireScope(principal, "tunnel.manage"); return asText(await this.tunnels.start(kind)); });
     server.registerTool("tunnel_stop", { description: "Stop a tunnel client started by this service", inputSchema: { kind: z.enum(["cloudflared", "frpc"]) }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true } }, async ({ kind }) => { requireScope(principal, "tunnel.manage"); this.tunnels.stop(kind); return asText({ stopped: true, kind }); });
     return server;
+  }
+
+  private registerTerminalTools(server: McpServer, principal: Principal): void {
+    const idSchema = z.string().uuid();
+    server.registerTool("create_terminal", {
+      description: "Create a persistent interactive PTY terminal session",
+      inputSchema: { cwd: z.string().optional(), env: z.record(z.string()).optional(), cols: z.number().int().min(20).max(500).default(120), rows: z.number().int().min(5).max(300).default(30) },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true }
+    }, async (input) => {
+      requireScope(principal, "command.run");
+      return asText(await this.terminals.create(input, this.runtimeAccess(principal)));
+    });
+    server.registerTool("read_terminal", {
+      description: "Read bounded PTY output from a monotonic byte offset",
+      inputSchema: { terminalId: idSchema, offset: z.number().int().nonnegative().default(0), maxBytes: z.number().int().positive().max(16 * 1024 * 1024).optional() },
+      annotations: { readOnlyHint: true, openWorldHint: false }
+    }, async ({ terminalId, offset, maxBytes }) => {
+      requireScope(principal, "command.run");
+      return asText(await this.runtimeOperation(principal, "terminal.read", terminalId, () => this.terminals.read(terminalId, offset, maxBytes, this.runtimeAccess(principal))));
+    });
+    server.registerTool("write_terminal", {
+      description: "Write UTF-8 input to a running PTY terminal",
+      inputSchema: { terminalId: idSchema, data: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
+    }, async ({ terminalId, data }) => {
+      requireScope(principal, "command.run");
+      return asText(await this.runtimeOperation(principal, "terminal.write", terminalId, () => this.terminals.write(terminalId, data, this.runtimeAccess(principal))));
+    });
+    server.registerTool("resize_terminal", {
+      description: "Resize a running PTY terminal",
+      inputSchema: { terminalId: idSchema, cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(300) },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
+    }, async ({ terminalId, cols, rows }) => {
+      requireScope(principal, "command.run");
+      return asText(await this.runtimeOperation(principal, "terminal.resize", terminalId, () => this.terminals.resize(terminalId, cols, rows, this.runtimeAccess(principal))));
+    });
+    server.registerTool("interrupt_terminal", {
+      description: "Send Ctrl+C to a running PTY terminal",
+      inputSchema: { terminalId: idSchema },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false }
+    }, async ({ terminalId }) => {
+      requireScope(principal, "command.run");
+      return asText(await this.runtimeOperation(principal, "terminal.interrupt", terminalId, () => this.terminals.interrupt(terminalId, this.runtimeAccess(principal))));
+    });
+    server.registerTool("close_terminal", {
+      description: "Close a PTY terminal session",
+      inputSchema: { terminalId: idSchema },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false }
+    }, async ({ terminalId }) => {
+      requireScope(principal, "command.run");
+      return asText(await this.runtimeOperation(principal, "terminal.close", terminalId, () => this.terminals.close(terminalId, this.runtimeAccess(principal))));
+    });
+  }
+
+  private registerRuntimeSnapshot(server: McpServer, principal: Principal): void {
+    registerAppTool(server, "runtime_snapshot", {
+      title: "Secure Host runtime status",
+      description: "Show a read-only snapshot of this host, accessible jobs and terminals, and coding workspace Git state",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: { ui: { resourceUri: RUNTIME_STATUS_URI } }
+    }, async () => {
+      requireScope(principal, "system.read");
+      const access = this.runtimeAccess(principal);
+      const snapshot: Record<string, unknown> = {
+        generatedAt: new Date().toISOString(),
+        host: this.executor.systemInfo()
+      };
+      if (principal.scopes.includes("command.run")) {
+        const visibleRecord = (record: RuntimeRecord): Record<string, unknown> => {
+          if (access.canManageAll) return record;
+          const { ownerId: _ownerId, ...visible } = record;
+          void _ownerId;
+          return visible;
+        };
+        snapshot.jobs = this.executor.list(access).map(visibleRecord);
+        snapshot.terminals = this.terminals.list(access).map(visibleRecord);
+      }
+      if (this.config.coding.enabled && principal.scopes.includes("workspace.read")) {
+        snapshot.workspace = await this.workspace.snapshot();
+      }
+      return asText(snapshot);
+    });
+    registerAppResource(server, "Secure Host runtime status card", RUNTIME_STATUS_URI, {
+      mimeType: RESOURCE_MIME_TYPE,
+      description: "Read-only Secure Host runtime status card"
+    }, async () => ({
+      contents: [{
+        uri: RUNTIME_STATUS_URI,
+        mimeType: RESOURCE_MIME_TYPE,
+        text: runtimeStatusHtml()
+      }]
+    }));
+  }
+
+  private runtimeAccess(principal: Principal): RuntimeAccess {
+    return { principalId: principal.id, canManageAll: principal.scopes.includes("admin.manage") };
+  }
+
+  private async runtimeOperation<T>(principal: Principal, action: string, objectId: string, operation: () => T | Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (error instanceof AppError && (error.code === "JOB_NOT_FOUND" || error.code === "TERMINAL_NOT_FOUND")) {
+        await this.audit.write({
+          correlationId: randomUUID(),
+          action: `${action}.denied`,
+          principalId: principal.id,
+          success: false,
+          metadata: { objectId }
+        });
+      }
+      throw error;
+    }
   }
 
   private registerCodingTools(server: McpServer, principal: Principal): void {
@@ -107,4 +231,19 @@ export class McpHost {
   handleLegacyGet = async (req: Request, res: Response): Promise<void> => { const transport = new SSEServerTransport("/messages", res); this.legacyTransports.set(transport.sessionId, transport); res.on("close", () => this.legacyTransports.delete(transport.sessionId)); await this.createServer(req.principal!).connect(transport); };
   handleLegacyPost = async (req: Request, res: Response): Promise<void> => { const sessionId = typeof req.query.sessionId === "string" ? req.query.sessionId : ""; const transport = this.legacyTransports.get(sessionId); if (!transport) { res.status(400).send("Invalid legacy SSE session"); return; } await transport.handlePostMessage(req, res, req.body); };
   async close(): Promise<void> { await Promise.all([...this.transports.values(), ...this.legacyTransports.values()].map((transport) => transport.close())); this.transports.clear(); this.legacyTransports.clear(); }
+}
+
+function runtimeStatusHtml(): string {
+  const candidates = [
+    join(moduleDirectory, "../web/runtime-status.html"),
+    join(moduleDirectory, "web/runtime-status.html")
+  ];
+  for (const candidate of candidates) {
+    try {
+      return readFileSync(candidate, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  throw new AppError("MCP_APP_ASSET_MISSING", "web/runtime-status.html was not found in the application package", 500);
 }

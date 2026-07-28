@@ -132,6 +132,13 @@ export class AuthService {
   };
 
   requireAdmin(token: string): boolean { return this.tokenRegistry.some((record) => record.role === "admin" && record.matches(token)); }
+  sensitiveValues(): string[] {
+    return [
+      this.tokenConfig.adminToken,
+      ...this.tokenConfig.connectionTokens.map((record) => record.token),
+      ...(this.secrets.helperKey ? [this.secrets.helperKey] : [])
+    ];
+  }
   listTokens(): TokenSummary[] {
     return this.tokenRegistry.map((record) => ({
       id: record.id,
