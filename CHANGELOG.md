@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.10](https://github.com/Razewang/secure-host-mcp/compare/v0.1.9...v0.1.10) (2026-07-28)
+
+
+### Features
+
+* add coding workspace and resumable PTY runtime ([2b08ccf](https://github.com/Razewang/secure-host-mcp/commit/2b08ccf65ce3b5658863e2482ce8ea349110b549))
+* add remote coding workspace tools ([198681d](https://github.com/Razewang/secure-host-mcp/commit/198681dbd5870dcc32cd0db9b2027ddded551c7b))
+* add resumable PTY remote runtime ([338f53d](https://github.com/Razewang/secure-host-mcp/commit/338f53da91f71778b9014f0498f38674042530e5))
+
+
+### Bug Fixes
+
+* package compiled node-pty runtime ([7b81e7c](https://github.com/Razewang/secure-host-mcp/commit/7b81e7c1581257de7df4cdfce8e888a83ff67395))
+* stabilize cross-platform PTY validation ([f17dc46](https://github.com/Razewang/secure-host-mcp/commit/f17dc46827e54b916b0c033be0949d95f53db2d1))
+
 ## [0.1.9](https://github.com/Razewang/secure-host-mcp/compare/v0.1.8...v0.1.9) (2026-07-26)
 
 
