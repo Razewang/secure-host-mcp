@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.12](https://github.com/Razewang/secure-host-mcp/compare/v0.1.11...v0.1.12) (2026-07-28)
+
+
+### Bug Fixes
+
+* approve required npm install scripts ([a93c6dc](https://github.com/Razewang/secure-host-mcp/commit/a93c6dc8779a102f49cd75cb4bcebc281b7b4903))
+* approve required npm install scripts ([c6aacbe](https://github.com/Razewang/secure-host-mcp/commit/c6aacbe175c91af67b4cabd437ba050c52a6ad86))
+
 ## [0.1.11](https://github.com/Razewang/secure-host-mcp/compare/v0.1.10...v0.1.11) (2026-07-28)
 
 
