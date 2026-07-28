@@ -54,6 +54,11 @@
   "overrides": {
     "@hono/node-server": "^2.0.5"
   },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true,
+    "node-pty@1.1.0": true
+  },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@modelcontextprotocol/sdk": "^1.30.0",
