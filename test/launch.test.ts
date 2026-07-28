@@ -12,7 +12,8 @@ afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { 
 describe("interactive launch preparation", () => {
   it("persists defaults and creates the editable administrator token only once", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "secure-host-mcp-launch-")); dirs.push(dir); const store = new ConfigStore(dir);
-    const first = await prepareInstallation(store, { adminToken: "my-token", hasPublicIp: true, publicAddress: "203.0.113.8" }); const second = await prepareInstallation(store);
+    const codingRoot = path.join(dir, "projects");
+    const first = await prepareInstallation(store, { adminToken: "my-token", hasPublicIp: true, publicAddress: "203.0.113.8", codingRoot }); const second = await prepareInstallation(store);
     expect(first.adminToken).toBe("my-token"); expect(second.adminToken).toBeUndefined();
     expect(JSON.parse(await readFile(store.configPath, "utf8"))).toMatchObject({ version: 1, dataDir: dir, mcp: { host: "0.0.0.0" }, admin: { host: "0.0.0.0" } });
     expect(JSON.parse(await readFile(store.tokensPath, "utf8"))).toEqual({ version: 1, adminToken: "my-token", connectionTokens: [] });
@@ -21,6 +22,7 @@ describe("interactive launch preparation", () => {
     expect(setupSummary(first.config).join("\n")).toContain("ChatGPT requires a public HTTPS MCP URL");
     expect(setupSummary(first.config).join("\n")).toContain("Public MCP URL: http://203.0.113.8:8767/mcp");
     expect(setupSummary(first.config).join("\n")).toContain("Web console URL: http://203.0.113.8:8768/");
+    expect(setupSummary(first.config).join("\n")).toContain(`Coding workspace: ${codingRoot}`);
   });
 
   it("formats IPv6 bind URLs and warns for every non-loopback listener", async () => {

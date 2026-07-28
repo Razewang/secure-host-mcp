@@ -30,15 +30,17 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "npm run build:mcp-app && tsc -p tsconfig.build.json",
+    "build:mcp-app": "node scripts/build-mcp-app.mjs",
     "dev": "tsx src/cli.ts start",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:pty": "node scripts/smoke-pty.mjs",
     "test:watch": "vitest",
     "start": "node dist/cli.js start",
     "prepack": "npm run build",
-    "package:standalone": "node scripts/package-standalone.mjs"
+    "package:standalone": "npm run build:mcp-app && node scripts/package-standalone.mjs"
   },
   "keywords": [
     "mcp",
@@ -53,10 +55,12 @@
     "@hono/node-server": "^2.0.5"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.5",
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "commander": "^14.0.0",
     "express": "^5.1.0",
     "jose": "^6.1.0",
+    "node-pty": "^1.1.0",
     "yaml": "^2.8.1",
     "zod": "^3.25.76"
   },

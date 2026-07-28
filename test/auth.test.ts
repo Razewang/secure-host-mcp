@@ -29,12 +29,12 @@ describe("AuthService", () => {
     await store.saveTokenConfig({
       version: 1,
       adminToken: "123456",
-      connectionTokens: [{ id: "local-agent", token: "agentABC", label: "Local agent", scopes: ["system.read", "command.run"] }]
+      connectionTokens: [{ id: "local-agent", token: "agentABC", label: "Local agent", scopes: ["system.read", "command.run", "workspace.read", "workspace.write"] }]
     });
     const config = await store.loadConfig(); const auth = new AuthService(config, store); await auth.initialize();
     expect(auth.requireAdmin("123456")).toBe(true);
     expect((await auth.authenticate("123456")).scopes).toContain("admin.manage");
-    expect((await auth.authenticate("agentABC")).scopes).toEqual(["system.read", "command.run"]);
+    expect((await auth.authenticate("agentABC")).scopes).toEqual(["system.read", "command.run", "workspace.read", "workspace.write"]);
     expect(auth.listTokens()).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "admin", role: "admin", revocable: false }),
       expect.objectContaining({ id: "local-agent", label: "Local agent", role: "agent", revocable: true })

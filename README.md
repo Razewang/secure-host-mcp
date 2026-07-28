@@ -16,7 +16,7 @@
   English | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
-Secure Host MCP exposes a Windows, Linux, or macOS host terminal to remote MCP clients through Streamable HTTP. It is intentionally powerful: the default administrator token can execute any command available to the service account, inspect or launch configured tunnels, and request privileged operations.
+Secure Host MCP exposes a Windows, Linux, or macOS host terminal and coding workspace to remote MCP clients through Streamable HTTP. It is intentionally powerful: the default administrator token can edit code, inspect Git, execute any command available to the service account, inspect or launch configured tunnels, and request privileged operations.
 
 ## Download a standalone release
 
@@ -44,7 +44,7 @@ Requires Node.js 20 or newer when installed through npm:
 
 ```powershell
 npm install -g secure-host-mcp
-secure-host-mcp setup --public-url https://mcp.example.com
+secure-host-mcp setup --public-url https://mcp.example.com --workspace /srv/projects
 secure-host-mcp doctor
 secure-host-mcp start
 ```
@@ -70,7 +70,8 @@ When run in an interactive terminal for a new installation, `setup`:
 2. Inspects `cloudflared` and offers to install the checksum-verified official binary when it is missing. Installing the binary does not create a Cloudflare account or tunnel configuration.
 3. Lets you automatically generate the initial token or enter any non-empty token of your choice. There is no fixed token format; letters, numbers, and combinations are accepted.
 4. Explains that the same initial token is both the web-console administrator token and a full-access MCP Bearer token.
-5. Prints concrete public-IP MCP and web-console URLs when a public IP is available, plus a plaintext HTTP warning.
+5. Asks for the directory that remote coding tools may access. The default is a dedicated `workspace` directory under the application data directory.
+6. Prints concrete public-IP MCP and web-console URLs when a public IP is available, plus a plaintext HTTP warning.
 
 Non-interactive setup keeps automation compatibility: it generates the token without prompting and does not install Cloudflare automatically. New installations listen on all network interfaces by default so remote clients can connect when the host firewall, router, and cloud security rules permit it.
 
@@ -99,9 +100,45 @@ Full write-capable MCP support in ChatGPT depends on the account/workspace plan 
 
 ## Terminal and jobs
 
-The main MCP tools are `execute_command`, `start_job`, `job_status`, `read_job_output`, and `cancel_job`. Windows uses PowerShell 7 when available and Windows PowerShell otherwise. Linux uses `/bin/bash` unless configured differently.
+The main one-shot and background MCP tools are `execute_command`, `start_job`, `job_status`, `read_job_output`, `write_job_input`, and `cancel_job`. For a real persistent PTY, use `create_terminal`, `read_terminal`, `write_terminal`, `resize_terminal`, `interrupt_terminal`, and `close_terminal`. Windows uses ConPTY with PowerShell 7 when available and Windows PowerShell otherwise; Linux and macOS use `/bin/bash` unless configured differently.
+
+PTY output is kept in a bounded ring buffer with monotonic byte offsets. If a requested offset has expired, `read_terminal` returns the current `startOffset` and `droppedBytes` so clients never mistake truncated output for a complete transcript. Terminals remain alive across MCP disconnects until they exit, are closed, or reach their idle TTL. A Secure Host process restart terminates managed processes and restores only redacted summaries marked `interrupted`; it does not claim that operating-system processes survived.
+
+Jobs and terminals belong to the authenticated token or OAuth principal that created them. A normal `command.run` principal can access only its own records; an `admin.manage` principal can inspect and stop all records. Unauthorized lookup returns the same not-found error as an unknown identifier.
+
+`runtime_snapshot` is a read-only `system.read` tool. It always returns host status, includes visible Job/PTY records when the caller also has `command.run`, and includes workspace/Git state when the caller also has `workspace.read`. Clients that support MCP Apps can render the versioned `ui://secure-host/runtime-status-v1.html` resource as a read-only status card. Other clients receive the same text and `structuredContent`; the card has no command, termination, approval, or polling controls.
 
 Commands are not sandboxed or allowlisted. Run the service under a dedicated account unless full user/root access is intentional. `execute_elevated` fails closed until the process is already elevated or a privileged helper is installed. `set_admin_mode` records the request; service reconfiguration must be applied by an installed service adapter or the local CLI.
+
+## Remote coding workspace
+
+When `coding.enabled` is true, the MCP catalog also includes:
+
+- `workspace_info`, `read_file`, `list_directory`, `list_files`, and `search_text`
+- `apply_patch`
+- `git_status`, `git_diff`, `git_log`, `git_show`, and `git_blame`
+
+These tools are implemented independently in TypeScript. They do not embed Codex, Claude Code, or another coding-agent runtime. `list_files` and `search_text` use bounded Node.js filesystem operations, while the Git tools invoke the host's `git` executable with argument arrays rather than shell interpolation.
+
+Direct file tools accept workspace-relative paths only. Absolute paths, `..` traversal, NUL bytes, and symbolic-link escapes are rejected. The workspace cannot be a filesystem root or the user's home directory. `apply_patch` uses structured create/replace/delete operations: replacements must match exactly once, optional SHA-256 baselines prevent stale writes, all operations are validated before mutation, and failed multi-file commits are rolled back.
+
+`workspace.read` grants file inspection, search, and read-only Git tools. `workspace.write` grants `apply_patch`. These scopes are intentionally separate from `command.run`: command execution remains host-level and can still access everything allowed to the service account.
+
+Example structured patch:
+
+```json
+{
+  "changes": [
+    {
+      "type": "replace",
+      "path": "src/index.ts",
+      "oldText": "const port = 3000;",
+      "newText": "const port = 8080;",
+      "expectedSha256": "SHA-256 returned by read_file"
+    }
+  ]
+}
+```
 
 ## cloudflared and frpc
 
@@ -136,7 +173,8 @@ The helper listens only on `127.0.0.1:8769`, authenticates with a random key fro
 
 - The configured administrator token has all scopes and is accepted by the web console, OAuth approval page, and direct MCP Bearer authentication.
 - `~/.secure-host-mcp/tokens.json` is the single registry for the administrator token and direct MCP connection tokens. OAuth grants and helper secrets live separately in `secrets.json`. Both files must use mode `0600` on POSIX. Back them up and protect them.
-- Audit logs intentionally contain complete commands and stdout/stderr in plaintext. They rotate by size/day and are retained for 30 days under the data directory.
+- Audit logs default to `audit.contentMode: "redacted"` and remove configured token values, Bearer credentials, helper secrets, and common password/token/secret/key assignments before disk writes. `metadata` stores only outcome, byte counts, and truncation metadata; `full` stores command/output content verbatim and can leak credentials. Logs rotate by size/day and are retained for 30 days under the data directory. PTY input content is never logged by default—only its byte count.
+- Coding file tools remain confined to `coding.root`; this boundary does not restrict the host-level command and elevation tools.
 - MCP and administration listen on all interfaces by default. Every administration API request requires the administrator bearer token, and mutations also require the page CSRF token.
 - Public HTTP is not encrypted: authentication controls access but cannot prevent interception of bearer tokens, OAuth codes, or administration traffic. Prefer HTTPS or a trusted VPN.
 - Tool annotations ask compatible clients to confirm destructive operations. The host cannot prove that a client actually displayed a human confirmation.
@@ -144,6 +182,39 @@ The helper listens only on `127.0.0.1:8769`, authenticates with a random key fro
 ## Configuration
 
 Set `SECURE_HOST_MCP_HOME` to change the data directory. Copy fields from `config.example.json` into the generated `config.json`, then restart. Configuration and secrets are written atomically.
+
+The coding workspace is enabled by default. Existing installations without a `coding.root` use `<dataDir>/workspace`; set an explicit project parent and restart to expose existing repositories:
+
+```json
+{
+  "coding": {
+    "enabled": true,
+    "root": "/srv/projects",
+    "maxReadBytes": 524288,
+    "maxSearchResults": 1000,
+    "maxPatchBytes": 1048576
+  }
+}
+```
+
+Runtime and audit limits can be adjusted independently:
+
+```json
+{
+  "execution": {
+    "maxTerminals": 4,
+    "maxTerminalOutputBytes": 1048576,
+    "terminalIdleTtlMs": 1800000,
+    "runtimeHistoryLimit": 100
+  },
+  "audit": {
+    "contentMode": "redacted",
+    "sensitiveKeys": ["authorization", "password", "token", "secret", "api_key", "private_key"]
+  }
+}
+```
+
+The redacted runtime summary is stored atomically as `runtime-state.json` in the application data directory with restricted POSIX permissions. It is context for auditing and reconnects, not cross-restart process supervision.
 
 The generated `tokens.json` is intentionally editable:
 
@@ -162,7 +233,7 @@ The generated `tokens.json` is intentionally editable:
 }
 ```
 
-Change `adminToken` to rotate the administrator token, or append entries to `connectionTokens` to create more direct MCP Bearer tokens. `id` is optional for manually added tokens; when omitted, the service derives a stable identifier from the token value. Token values have no pattern requirement but must be non-empty and unique. Scopes must come from `system.read`, `command.run`, `command.elevate`, `tunnel.read`, `tunnel.manage`, and `admin.manage`. Restart Secure Host MCP after manual edits. See `tokens.example.json` for a full-access example.
+Change `adminToken` to rotate the administrator token, or append entries to `connectionTokens` to create more direct MCP Bearer tokens. `id` is optional for manually added tokens; when omitted, the service derives a stable identifier from the token value. Token values have no pattern requirement but must be non-empty and unique. Scopes must come from `system.read`, `command.run`, `command.elevate`, `workspace.read`, `workspace.write`, `tunnel.read`, `tunnel.manage`, and `admin.manage`. Restart Secure Host MCP after manual edits. See `tokens.example.json` for a full-access example.
 
 For a loopback-only deployment, explicitly set both `mcp.host` and `admin.host` to `127.0.0.1`. New installations enable remote administration by default.
 

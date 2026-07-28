@@ -1,5 +1,5 @@
 export const ALL_SCOPES = [
-  "system.read", "command.run", "command.elevate", "tunnel.read", "tunnel.manage", "admin.manage"
+  "system.read", "command.run", "command.elevate", "workspace.read", "workspace.write", "tunnel.read", "tunnel.manage", "admin.manage"
 ] as const;
 export type Scope = (typeof ALL_SCOPES)[number];
 

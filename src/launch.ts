@@ -28,6 +28,7 @@ export function setupSummary(config: AppConfig): string[] {
   const messages = [
     `MCP bind: ${httpUrl(config.mcp.host, config.mcp.port, "/mcp")}`,
     `Administration bind: ${httpUrl(config.admin.host, config.admin.port)}`,
+    `Coding workspace: ${config.coding.enabled ? (config.coding.root ?? `${config.dataDir}/workspace`) : "disabled"}`,
   ];
   if (config.network.publicAddress) {
     messages.push(`Public MCP URL: ${httpUrl(config.network.publicAddress, config.mcp.port, "/mcp")}`);

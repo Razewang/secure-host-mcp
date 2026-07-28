@@ -19,7 +19,7 @@ export default tseslint.config(
   },
   {
     ...tseslint.configs.disableTypeChecked,
-    files: ["web/**/*.js"],
+    files: ["web/**/*.js", "mcp-app/**/*.js"],
     languageOptions: {
       ...tseslint.configs.disableTypeChecked.languageOptions,
       ecmaVersion: 2022,
@@ -29,7 +29,8 @@ export default tseslint.config(
         navigator: "readonly",
         fetch: "readonly",
         setTimeout: "readonly",
-        window: "readonly"
+        window: "readonly",
+        Error: "readonly"
       }
     }
   }

@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import { atomicWriteJson } from "./files.js";
 import { ALL_SCOPES, AppError, type Scope } from "./types.js";
 
 const NonEmptyTokenSchema = z.string().refine((value) => value.trim().length > 0, "token must not be empty");
@@ -35,8 +36,32 @@ const ConfigSchema = z.object({
   publicBaseUrl: z.string().url().optional(),
   mcp: z.object({ host: z.string().default("0.0.0.0"), port: z.number().int().min(1).max(65535).default(8767) }),
   admin: z.object({ host: z.string().default("0.0.0.0"), port: z.number().int().min(1).max(65535).default(8768) }),
-  execution: z.object({ maxTimeoutMs: z.number().int().positive().default(120000), maxOutputBytes: z.number().int().positive().default(1048576), maxJobs: z.number().int().positive().default(8), jobTtlMs: z.number().int().positive().default(3600000), shell: z.string().optional() }),
-  audit: z.object({ retentionDays: z.number().int().positive().default(30), maxFileBytes: z.number().int().positive().default(25 * 1024 * 1024) }),
+  execution: z.object({
+    maxTimeoutMs: z.number().int().positive().default(120000),
+    maxOutputBytes: z.number().int().positive().default(1048576),
+    maxJobs: z.number().int().positive().default(8),
+    jobTtlMs: z.number().int().positive().default(3600000),
+    maxTerminals: z.number().int().positive().max(64).default(4),
+    maxTerminalOutputBytes: z.number().int().positive().max(16 * 1024 * 1024).default(1024 * 1024),
+    terminalIdleTtlMs: z.number().int().positive().default(30 * 60 * 1000),
+    runtimeHistoryLimit: z.number().int().positive().max(5000).default(100),
+    shell: z.string().optional()
+  }),
+  coding: z.object({
+    enabled: z.boolean().default(true),
+    root: z.string().min(1).refine((value) => path.isAbsolute(value), "coding root must be an absolute path").optional(),
+    maxReadBytes: z.number().int().positive().max(16 * 1024 * 1024).default(512 * 1024),
+    maxSearchResults: z.number().int().positive().max(5000).default(1000),
+    maxPatchBytes: z.number().int().positive().max(16 * 1024 * 1024).default(1024 * 1024)
+  }).default({}),
+  audit: z.object({
+    retentionDays: z.number().int().positive().default(30),
+    maxFileBytes: z.number().int().positive().default(25 * 1024 * 1024),
+    contentMode: z.enum(["metadata", "redacted", "full"]).default("redacted"),
+    sensitiveKeys: z.array(z.string().min(1).max(120)).default([
+      "authorization", "password", "passwd", "token", "secret", "api_key", "apikey", "private_key"
+    ])
+  }),
   auth: z.object({ externalIssuer: z.string().url().optional(), externalAudience: z.string().optional() }).default({}),
   tunnels: z.object({ cloudflaredConfig: z.string().optional(), frpcConfig: z.string().optional(), proxyUrl: z.string().optional() }).default({}),
   network: z.object({ hasPublicIp: z.boolean().optional(), publicAddress: z.string().optional() }).default({}),
@@ -58,32 +83,6 @@ export function defaultDataDir(): string {
   return process.env.SECURE_HOST_MCP_HOME ?? path.join(os.homedir(), ".secure-host-mcp");
 }
 
-const atomicWriteQueues = new Map<string, Promise<void>>();
-
-async function atomicWrite(file: string, value: unknown, secret = false): Promise<void> {
-  const target = path.resolve(file);
-  const previous = atomicWriteQueues.get(target) ?? Promise.resolve();
-  const operation = previous.then(async () => {
-    await mkdir(path.dirname(target), { recursive: true });
-    const temp = `${target}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
-    try {
-      await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: secret ? 0o600 : 0o644 });
-      await rename(temp, target);
-    } catch (error) {
-      await rm(temp, { force: true }).catch(() => undefined);
-      throw error;
-    }
-    if (secret && process.platform !== "win32") await chmod(target, 0o600);
-  });
-  const tail = operation.then(() => undefined, () => undefined);
-  atomicWriteQueues.set(target, tail);
-  try {
-    await operation;
-  } finally {
-    if (atomicWriteQueues.get(target) === tail) atomicWriteQueues.delete(target);
-  }
-}
-
 export class ConfigStore {
   readonly configPath: string;
   readonly secretsPath: string;
@@ -95,14 +94,17 @@ export class ConfigStore {
   }
 
   async loadConfig(): Promise<AppConfig> {
-    try { return ConfigSchema.parse(JSON.parse(await readFile(this.configPath, "utf8"))); }
+    let config: AppConfig;
+    try { config = ConfigSchema.parse(JSON.parse(await readFile(this.configPath, "utf8"))); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      return ConfigSchema.parse({ dataDir: this.dataDir, mcp: {}, admin: {}, execution: {}, audit: {} });
+      config = ConfigSchema.parse({ dataDir: this.dataDir, mcp: {}, admin: {}, execution: {}, coding: {}, audit: {} });
     }
+    config.coding.root ??= path.join(config.dataDir, "workspace");
+    return config;
   }
 
-  async saveConfig(config: AppConfig): Promise<void> { await atomicWrite(this.configPath, ConfigSchema.parse(config)); }
+  async saveConfig(config: AppConfig): Promise<void> { await atomicWriteJson(this.configPath, ConfigSchema.parse(config)); }
 
   async loadSecrets(): Promise<Secrets> {
     try {
@@ -114,7 +116,7 @@ export class ConfigStore {
     }
   }
 
-  async saveSecrets(secrets: Secrets): Promise<void> { await atomicWrite(this.secretsPath, SecretsSchema.parse(secrets), true); }
+  async saveSecrets(secrets: Secrets): Promise<void> { await atomicWriteJson(this.secretsPath, SecretsSchema.parse(secrets), true); }
 
   async loadTokenConfig(): Promise<TokenConfig | undefined> {
     try {
@@ -126,7 +128,7 @@ export class ConfigStore {
     }
   }
 
-  async saveTokenConfig(config: TokenConfig): Promise<void> { await atomicWrite(this.tokensPath, TokenConfigSchema.parse(config), true); }
+  async saveTokenConfig(config: TokenConfig): Promise<void> { await atomicWriteJson(this.tokensPath, TokenConfigSchema.parse(config), true); }
 
   async hasAdminToken(): Promise<boolean> { return Boolean(await this.loadTokenConfig()); }
 

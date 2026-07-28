@@ -16,6 +16,8 @@ var SCOPE_LABELS = {
   "system.read": "scopeSystemRead",
   "command.run": "scopeCommandRun",
   "command.elevate": "scopeCommandElevate",
+  "workspace.read": "scopeWorkspaceRead",
+  "workspace.write": "scopeWorkspaceWrite",
   "tunnel.read": "scopeTunnelRead",
   "tunnel.manage": "scopeTunnelManage",
   "admin.manage": "scopeAdminManage"
@@ -32,8 +34,8 @@ var TEXT = {
     runtimeConfiguration: "运行配置", notLoaded: "尚未加载", confirmAction: "确认操作", confirmPrompt: "确定要执行此操作吗？", cancel: "取消", confirm: "确认",
     tokenRequired: "请输入管理员令牌", authFailed: "认证失败，请检查令牌", unauthorized: "认证失败：令牌无效或已过期", originRejected: "请求被拒绝：来源验证失败",
     rateLimited: "请求过于频繁，请稍后再试", requestFailed: "请求失败", hostname: "主机名", architecture: "系统架构", uptime: "运行时间", sinceStartup: "自上次启动",
-    cpuCores: "CPU 核心", memory: "内存", available: "可用 {value}", runtimeVersion: "运行时版本", noTunnelInfo: "无隧道信息", notInstalled: "未安装", running: "运行中", stopped: "已停止",
-    scopeSystemRead: "系统读取", scopeCommandRun: "执行命令", scopeCommandElevate: "提权执行", scopeTunnelRead: "隧道读取", scopeTunnelManage: "隧道管理", scopeAdminManage: "管理权限",
+    cpuCores: "CPU 核心", memory: "内存", available: "可用 {value}", runtimeVersion: "运行时版本", activeJobs: "后台任务", activeTerminals: "PTY 终端", runtimeHistory: "运行记录", activeNow: "当前运行", retainedSummaries: "保留摘要", noTunnelInfo: "无隧道信息", notInstalled: "未安装", running: "运行中", stopped: "已停止",
+    scopeSystemRead: "系统读取", scopeCommandRun: "执行命令", scopeCommandElevate: "提权执行", scopeWorkspaceRead: "代码工作区读取", scopeWorkspaceWrite: "代码工作区修改", scopeTunnelRead: "隧道读取", scopeTunnelManage: "隧道管理", scopeAdminManage: "管理权限",
     adminManaged: "管理员令牌由 tokens.json 管理", delete: "删除", createdOn: "创建于 {date}", administrator: "管理员", connectionToken: "连接令牌", atLeastOneScope: "请至少选择一个权限范围",
     tokenCreated: "令牌创建成功", newTokenOnce: "新令牌（仅显示一次，请妥善保存）", agentToken: "Agent token", deleteToken: "删除令牌",
     deleteConfirm: "确定要删除令牌「{label}」吗？此操作不可撤销，使用该令牌的服务将立即失去访问权限。", tokenDeleted: "令牌已删除",
@@ -60,8 +62,8 @@ var TEXT = {
     runtimeConfiguration: "Runtime configuration", notLoaded: "Not loaded", confirmAction: "Confirm action", confirmPrompt: "Are you sure you want to continue?", cancel: "Cancel", confirm: "Confirm",
     tokenRequired: "Enter the administrator token", authFailed: "Authentication failed; check the token", unauthorized: "Authentication failed: invalid or expired token", originRejected: "Request rejected: origin validation failed",
     rateLimited: "Too many requests; try again shortly", requestFailed: "Request failed", hostname: "Hostname", architecture: "Architecture", uptime: "Uptime", sinceStartup: "Since last start",
-    cpuCores: "CPU cores", memory: "Memory", available: "{value} available", runtimeVersion: "Runtime version", noTunnelInfo: "No tunnel information", notInstalled: "Not installed", running: "Running", stopped: "Stopped",
-    scopeSystemRead: "Read system", scopeCommandRun: "Run commands", scopeCommandElevate: "Elevated commands", scopeTunnelRead: "Read tunnels", scopeTunnelManage: "Manage tunnels", scopeAdminManage: "Administration",
+    cpuCores: "CPU cores", memory: "Memory", available: "{value} available", runtimeVersion: "Runtime version", activeJobs: "Background jobs", activeTerminals: "PTY terminals", runtimeHistory: "Runtime records", activeNow: "Currently running", retainedSummaries: "Retained summaries", noTunnelInfo: "No tunnel information", notInstalled: "Not installed", running: "Running", stopped: "Stopped",
+    scopeSystemRead: "Read system", scopeCommandRun: "Run commands", scopeCommandElevate: "Elevated commands", scopeWorkspaceRead: "Read coding workspace", scopeWorkspaceWrite: "Modify coding workspace", scopeTunnelRead: "Read tunnels", scopeTunnelManage: "Manage tunnels", scopeAdminManage: "Administration",
     adminManaged: "Administrator token is managed in tokens.json", delete: "Delete", createdOn: "Created {date}", administrator: "Administrator", connectionToken: "Connection token", atLeastOneScope: "Select at least one scope",
     tokenCreated: "Token created", newTokenOnce: "New token (shown once; save it now)", agentToken: "Agent token", deleteToken: "Delete token",
     deleteConfirm: "Delete token “{label}”? This cannot be undone and clients using it will immediately lose access.", tokenDeleted: "Token deleted",
@@ -174,13 +176,19 @@ function switchSection(name) {
 function renderOverview() {
   if (!statusData) return;
   var sys = statusData.system || {};
+  var runtime = statusData.runtime || {};
+  var jobs = runtime.jobs || [];
+  var terminals = runtime.terminals || [];
   var cards = [
     { label: tr("hostname"), value: sys.hostname || "—", sub: sys.platform || "" },
     { label: tr("architecture"), value: sys.arch || "—", sub: sys.platform ? sys.platform + (sys.release ? " " + sys.release : "") : "" },
     { label: tr("uptime"), value: formatUptime(sys.uptime), sub: tr("sinceStartup") },
     { label: tr("cpuCores"), value: String(sys.cpus || "—"), sub: sys.cpuModel || "" },
     { label: tr("memory"), value: formatBytes(sys.totalMemory), sub: tr("available", { value: formatBytes(sys.freeMemory) }) },
-    { label: "Node.js", value: sys.node || "—", sub: tr("runtimeVersion") }
+    { label: "Node.js", value: sys.node || "—", sub: tr("runtimeVersion") },
+    { label: tr("activeJobs"), value: String(jobs.filter(function(item) { return item.status === "running"; }).length), sub: tr("activeNow") },
+    { label: tr("activeTerminals"), value: String(terminals.filter(function(item) { return item.status === "running"; }).length), sub: tr("activeNow") },
+    { label: tr("runtimeHistory"), value: String(jobs.length + terminals.length), sub: tr("retainedSummaries") }
   ];
   var html = "";
   cards.forEach(function(c) {
