@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.14](https://github.com/Razewang/secure-host-mcp/compare/v0.1.13...v0.1.14) (2026-07-30)
+
+
+### Bug Fixes
+
+* verify service process identity ([6f3a8c9](https://github.com/Razewang/secure-host-mcp/commit/6f3a8c90a005dbf2ad668d78234f0d7df7a9ab8f))
+* verify service process identity ([61b1f50](https://github.com/Razewang/secure-host-mcp/commit/61b1f505c3b02679567a8c5e8861e81b35d958fe))
+
 ## [0.1.13](https://github.com/Razewang/secure-host-mcp/compare/v0.1.12...v0.1.13) (2026-07-30)
 
 
