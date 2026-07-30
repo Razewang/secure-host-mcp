@@ -55,6 +55,30 @@ secure-host-mcp start
 >
 > 因此首次使用的完整流程是：**1.** `setup`（每台机器只需一次）→ **2.** `doctor`（可选的健康检查）→ **3.** `start`（此后每次启动）。如果希望一条命令完成，可以使用 `secure-host-mcp launch`：它会在需要时自动执行首次配置再启动服务，与独立发行包中双击 `secure-host-mcp.exe` 的行为一致。
 
+### 进程启动与停止
+
+`start` 仍默认以前台方式运行；添加 `--daemon` 后会脱离当前终端，将标准输出和错误写入应用日志，并在后台进程报告启动成功后返回：
+
+```powershell
+# 前台启动，按 Ctrl+C 停止
+secure-host-mcp start
+
+# 后台启动
+secure-host-mcp start --daemon
+
+# 查看、停止和重启托管进程
+secure-host-mcp status
+secure-host-mcp status --json
+secure-host-mcp stop
+secure-host-mcp restart
+
+# 仅在优雅停止超时时使用
+secure-host-mcp stop --force
+secure-host-mcp restart --force
+```
+
+`secure-host-mcp launch --daemon` 可以在需要时完成首次配置，然后直接进入后台运行。PID 状态保存在 `SECURE_HOST_MCP_HOME` 下的 `service-state.json`，后台输出保存在 `service.log`；默认目录为 `~/.secure-host-mcp`。进程异常退出后，`status` 会自动清理陈旧 PID。生命周期命令只管理使用同一应用数据目录启动的 Secure Host MCP，不会自动安装系统服务，也不会停止无关的 Node.js 进程。
+
 在交互式终端中进行全新安装时，`setup` 会：
 
 1. 询问设备是否拥有可直接访问的公网 IP，并尽可能通过 Cloudflare trace 接口自动检测。

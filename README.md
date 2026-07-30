@@ -64,6 +64,37 @@ secure-host-mcp start
 > the same behavior as double-clicking `secure-host-mcp.exe` from the
 > standalone package.
 
+### Process lifecycle
+
+`start` remains a foreground command. Add `--daemon` to detach it, redirect
+stdout/stderr to the application log, and return after the child reports ready:
+
+```powershell
+# Foreground; stop with Ctrl+C
+secure-host-mcp start
+
+# Background
+secure-host-mcp start --daemon
+
+# Inspect, stop, or restart the managed process
+secure-host-mcp status
+secure-host-mcp status --json
+secure-host-mcp stop
+secure-host-mcp restart
+
+# Use only when graceful shutdown times out
+secure-host-mcp stop --force
+secure-host-mcp restart --force
+```
+
+`secure-host-mcp launch --daemon` performs first-time setup when required and
+then starts in the background. The PID record is stored as
+`service-state.json` and background output as `service.log` under
+`SECURE_HOST_MCP_HOME` (by default `~/.secure-host-mcp`). The status command
+automatically removes a stale PID record after an unclean exit. Only processes
+started by the same application data directory are managed; these commands do
+not install an operating-system service or control unrelated Node processes.
+
 When run in an interactive terminal for a new installation, `setup`:
 
 1. Asks whether the device has a directly reachable public IP and detects it through Cloudflare's trace endpoint when possible.

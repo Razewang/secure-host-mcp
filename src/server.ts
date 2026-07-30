@@ -82,8 +82,9 @@ export async function createApplication(store = new ConfigStore()): Promise<{ mc
 
   const csrf = randomBytes(24).toString("base64url");
   adminApp.get("/", (_req, res) => res.type("html").send(adminHtml(csrf)));
-  adminApp.get("/styles.css", (_req, res) => res.type("css").sendFile(adminWebFile("styles.css")));
-  adminApp.get("/app.js", (_req, res) => res.type("js").sendFile(adminWebFile("app.js")));
+  const staticFileOptions = { dotfiles: "allow" as const };
+  adminApp.get("/styles.css", (_req, res) => res.type("css").sendFile(adminWebFile("styles.css"), staticFileOptions));
+  adminApp.get("/app.js", (_req, res) => res.type("js").sendFile(adminWebFile("app.js"), staticFileOptions));
   const requireAdminRead = adminAuthorization(auth, csrf, false);
   const requireAdminMutation = adminAuthorization(auth, csrf, true);
   const auditDirectory = join(config.dataDir, "audit");
@@ -160,7 +161,41 @@ export async function createApplication(store = new ConfigStore()): Promise<{ mc
   return { mcpApp, adminApp, config, close: async () => { await Promise.all([executor.closeAll(), terminals.closeAll()]); await mcp.close(); } };
 }
 
-export async function startServer(store = new ConfigStore()): Promise<{ server: Server; adminServer: Server; close: () => Promise<void> }> { const created = await createApplication(store); const server = created.mcpApp.listen(created.config.mcp.port, created.config.mcp.host); const adminServer = created.adminApp.listen(created.config.admin.port, created.config.admin.host); const closeServer = (target: Server) => new Promise<void>((resolve, reject) => target.close((error) => error ? reject(error) : resolve())); return { server, adminServer, close: async () => { await created.close(); await Promise.all([closeServer(server), closeServer(adminServer)]); } }; }
+function listen(app: express.Express, port: number, host: string): Promise<Server> {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, host);
+    const onError = (error: Error) => { server.off("listening", onListening); reject(error); };
+    const onListening = () => { server.off("error", onError); resolve(server); };
+    server.once("error", onError);
+    server.once("listening", onListening);
+  });
+}
+
+function closeServer(target: Server): Promise<void> {
+  return new Promise((resolve, reject) => target.close((error) => error ? reject(error) : resolve()));
+}
+
+export async function startServer(store = new ConfigStore()): Promise<{ server: Server; adminServer: Server; close: () => Promise<void> }> {
+  const created = await createApplication(store);
+  let server: Server | undefined;
+  let adminServer: Server | undefined;
+  try {
+    server = await listen(created.mcpApp, created.config.mcp.port, created.config.mcp.host);
+    adminServer = await listen(created.adminApp, created.config.admin.port, created.config.admin.host);
+  } catch (error) {
+    if (server) await closeServer(server).catch(() => undefined);
+    await created.close();
+    throw error;
+  }
+  return {
+    server,
+    adminServer,
+    close: async () => {
+      await created.close();
+      await Promise.all([closeServer(server), closeServer(adminServer)]);
+    }
+  };
+}
 function escapeHtml(value: string): string { return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!); }
 function adminAuthorization(auth: AuthService, csrf: string, mutation: boolean) {
   return (req: Request, _res: Response, next: (error?: unknown) => void): void => {
