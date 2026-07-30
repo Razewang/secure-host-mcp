@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.13](https://github.com/Razewang/secure-host-mcp/compare/v0.1.12...v0.1.13) (2026-07-30)
+
+
+### Features
+
+* add background service lifecycle commands ([de9276a](https://github.com/Razewang/secure-host-mcp/commit/de9276a826f72a3403961605c5e97cede23f1ece))
+* add background service lifecycle commands ([4ebf085](https://github.com/Razewang/secure-host-mcp/commit/4ebf0850206538e986f09e73a410f8fdb4ab5e84))
+
 ## [0.1.12](https://github.com/Razewang/secure-host-mcp/compare/v0.1.11...v0.1.12) (2026-07-28)
 
 
