@@ -9,6 +9,7 @@ var statusData = null;
 var tokensData = [];
 var logsData = null;
 var currentLogContent = "";
+var logViewRequestId = 0;
 var pendingDialogAction = null;
 var locale = navigator.language && navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
 
@@ -145,6 +146,7 @@ function connect() {
 }
 
 function disconnect() {
+  logViewRequestId += 1;
   adminToken = "";
   statusData = null;
   tokensData = [];
@@ -468,13 +470,17 @@ function renderLogFileList() {
 }
 
 function viewLog(name) {
+  var requestId = ++logViewRequestId;
   apiFetch("/api/logs/" + encodeURIComponent(name)).then(function(data) {
+    if (requestId !== logViewRequestId) return;
     document.getElementById("logViewerTitle").textContent = data.name;
     document.getElementById("logTruncatedNote").style.display = data.truncated ? "block" : "none";
     currentLogContent = data.content || "";
     document.getElementById("logContent").textContent = formatLogContent(currentLogContent);
     document.getElementById("logViewerPanel").style.display = "block";
-  }).catch(function(err) { showToast(err.message, "error"); });
+  }).catch(function(err) {
+    if (requestId === logViewRequestId) showToast(err.message, "error");
+  });
 }
 
 function formatLogContent(content) {
@@ -568,6 +574,7 @@ document.getElementById("refreshTokensBtn").addEventListener("click", loadTokens
 document.getElementById("refreshLogsBtn").addEventListener("click", loadLogs);
 document.getElementById("copyMcpExampleBtn").addEventListener("click", copyMcpExample);
 document.getElementById("closeLogBtn").addEventListener("click", function() {
+  logViewRequestId += 1;
   document.getElementById("logViewerPanel").style.display = "none";
   currentLogContent = "";
 });
