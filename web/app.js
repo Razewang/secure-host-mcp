@@ -49,7 +49,7 @@ var TEXT = {
     logTruncated: "文件较大，仅显示末尾部分内容。完整日志请在上方目录中查看对应文件。",
     logEntry: "记录", logTime: "时间", logAction: "操作", logResult: "结果", logSucceeded: "成功", logFailed: "失败",
     logPrincipal: "操作者", logCorrelation: "关联 ID", logCommand: "命令", logStdout: "标准输出", logStderr: "错误输出",
-    logMetadata: "元数据", logAdditionalFields: "其他字段", logRawEntry: "无法解析的原始记录",
+    logMetadata: "元数据", logAdditionalFields: "其他字段", logRawEntry: "无法解析的原始记录", logLocalTime: "本地：{value}",
     filePaths: "文件位置", configFile: "配置文件", dataDirectory: "数据目录", auditDirectory: "审计日志目录",
     domainWarningText: "OIDC 鉴权需要公网域名：请在配置文件 {path} 中将 publicBaseUrl 设置为 frp 或 Cloudflare 隧道对应的域名（例如 https://mcp.example.com）。未配置时对外颁发的 OAuth/OIDC 元数据将指向本机地址，外部客户端无法完成鉴权。",
     mcpExample: "MCP 连接示例", copy: "复制", copied: "已复制到剪贴板", copyFailed: "复制失败，请手动选择复制",
@@ -80,7 +80,7 @@ var TEXT = {
     logTruncated: "Large file: only the tail is shown. Open the file from the directory above for the full log.",
     logEntry: "Entry", logTime: "Time", logAction: "Action", logResult: "Result", logSucceeded: "Succeeded", logFailed: "Failed",
     logPrincipal: "Principal", logCorrelation: "Correlation ID", logCommand: "Command", logStdout: "Standard output", logStderr: "Error output",
-    logMetadata: "Metadata", logAdditionalFields: "Additional fields", logRawEntry: "Unparsed raw entry",
+    logMetadata: "Metadata", logAdditionalFields: "Additional fields", logRawEntry: "Unparsed raw entry", logLocalTime: "Local: {value}",
     filePaths: "File locations", configFile: "Configuration file", dataDirectory: "Data directory", auditDirectory: "Audit log directory",
     domainWarningText: "OIDC authentication requires a public domain: set publicBaseUrl in {path} to the domain served by your frp or Cloudflare tunnel (e.g. https://mcp.example.com). Without it the published OAuth/OIDC metadata points at the local address and external clients cannot authenticate.",
     mcpExample: "MCP connection example", copy: "Copy", copied: "Copied to clipboard", copyFailed: "Copy failed; select and copy manually",
@@ -521,8 +521,12 @@ function formatLogEntry(entry, index) {
 function appendLogField(lines, label, value, block) {
   if (value === undefined || value === null || value === "") return;
   var formatted = formatLogValue(value);
-  if (block || formatted.includes("\n")) lines.push("", label + ":", formatted);
+  if (block || formatted.includes("\n")) lines.push("", label + ":", quoteLogBlock(formatted));
   else lines.push(label + ": " + formatted);
+}
+
+function quoteLogBlock(value) {
+  return value.split("\n").map(function(line) { return "│ " + line; }).join("\n");
 }
 
 function formatLogValue(value) {
@@ -533,8 +537,11 @@ function formatLogValue(value) {
 
 function formatLogTimestamp(value) {
   if (!value) return "";
+  var exact = String(value);
   var date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString(locale === "zh" ? "zh-CN" : "en");
+  if (Number.isNaN(date.getTime())) return exact;
+  var local = date.toLocaleString(locale === "zh" ? "zh-CN" : "en");
+  return exact + " · " + tr("logLocalTime", { value: local });
 }
 
 /* Utilities */
