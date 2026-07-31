@@ -900,9 +900,11 @@ body {
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
-  word-break: break-all;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  tab-size: 2;
   max-height: 420px;
-  overflow-y: auto;
+  overflow: auto;
   color: var(--fg);
 }
 

@@ -8,6 +8,8 @@ var csrfToken = bootstrap.csrfToken;
 var statusData = null;
 var tokensData = [];
 var logsData = null;
+var currentLogContent = "";
+var logViewRequestId = 0;
 var pendingDialogAction = null;
 var locale = navigator.language && navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
 
@@ -45,6 +47,9 @@ var TEXT = {
     logs: "日志", auditLogs: "审计日志", logsDescription: "命令执行与管理操作的审计记录", logLocation: "日志文件位置", logFiles: "日志文件",
     loadingLogs: "正在加载日志列表…", noLogs: "暂无审计日志记录", view: "查看", close: "关闭", modifiedOn: "更新于 {date}",
     logTruncated: "文件较大，仅显示末尾部分内容。完整日志请在上方目录中查看对应文件。",
+    logEntry: "记录", logTime: "时间", logAction: "操作", logResult: "结果", logSucceeded: "成功", logFailed: "失败",
+    logPrincipal: "操作者", logCorrelation: "关联 ID", logCommand: "命令", logStdout: "标准输出", logStderr: "错误输出",
+    logMetadata: "元数据", logAdditionalFields: "其他字段", logRawEntry: "无法解析的原始记录", logLocalTime: "本地：{value}",
     filePaths: "文件位置", configFile: "配置文件", dataDirectory: "数据目录", auditDirectory: "审计日志目录",
     domainWarningText: "OIDC 鉴权需要公网域名：请在配置文件 {path} 中将 publicBaseUrl 设置为 frp 或 Cloudflare 隧道对应的域名（例如 https://mcp.example.com）。未配置时对外颁发的 OAuth/OIDC 元数据将指向本机地址，外部客户端无法完成鉴权。",
     mcpExample: "MCP 连接示例", copy: "复制", copied: "已复制到剪贴板", copyFailed: "复制失败，请手动选择复制",
@@ -73,6 +78,9 @@ var TEXT = {
     logs: "Logs", auditLogs: "Audit logs", logsDescription: "Audit records of command execution and administration actions", logLocation: "Log file location", logFiles: "Log files",
     loadingLogs: "Loading log files…", noLogs: "No audit log records yet", view: "View", close: "Close", modifiedOn: "Updated {date}",
     logTruncated: "Large file: only the tail is shown. Open the file from the directory above for the full log.",
+    logEntry: "Entry", logTime: "Time", logAction: "Action", logResult: "Result", logSucceeded: "Succeeded", logFailed: "Failed",
+    logPrincipal: "Principal", logCorrelation: "Correlation ID", logCommand: "Command", logStdout: "Standard output", logStderr: "Error output",
+    logMetadata: "Metadata", logAdditionalFields: "Additional fields", logRawEntry: "Unparsed raw entry", logLocalTime: "Local: {value}",
     filePaths: "File locations", configFile: "Configuration file", dataDirectory: "Data directory", auditDirectory: "Audit log directory",
     domainWarningText: "OIDC authentication requires a public domain: set publicBaseUrl in {path} to the domain served by your frp or Cloudflare tunnel (e.g. https://mcp.example.com). Without it the published OAuth/OIDC metadata points at the local address and external clients cannot authenticate.",
     mcpExample: "MCP connection example", copy: "Copy", copied: "Copied to clipboard", copyFailed: "Copy failed; select and copy manually",
@@ -138,10 +146,12 @@ function connect() {
 }
 
 function disconnect() {
+  logViewRequestId += 1;
   adminToken = "";
   statusData = null;
   tokensData = [];
   logsData = null;
+  currentLogContent = "";
   document.getElementById("logViewerPanel").style.display = "none";
   document.getElementById("app").classList.remove("active");
   document.getElementById("authGate").style.display = "flex";
@@ -460,12 +470,78 @@ function renderLogFileList() {
 }
 
 function viewLog(name) {
+  var requestId = ++logViewRequestId;
   apiFetch("/api/logs/" + encodeURIComponent(name)).then(function(data) {
+    if (requestId !== logViewRequestId) return;
     document.getElementById("logViewerTitle").textContent = data.name;
     document.getElementById("logTruncatedNote").style.display = data.truncated ? "block" : "none";
-    document.getElementById("logContent").textContent = data.content || "";
+    currentLogContent = data.content || "";
+    document.getElementById("logContent").textContent = formatLogContent(currentLogContent);
     document.getElementById("logViewerPanel").style.display = "block";
-  }).catch(function(err) { showToast(err.message, "error"); });
+  }).catch(function(err) {
+    if (requestId === logViewRequestId) showToast(err.message, "error");
+  });
+}
+
+function formatLogContent(content) {
+  var lines = String(content || "").split(/\r?\n/).filter(function(line) { return line.trim(); });
+  if (!lines.length) return "";
+  return lines.map(function(line, index) {
+    try {
+      var entry = JSON.parse(line);
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("not an object");
+      return formatLogEntry(entry, index);
+    } catch {
+      return "# " + (index + 1) + " · " + tr("logRawEntry") + "\n\n" + line;
+    }
+  }).join("\n\n" + "─".repeat(72) + "\n\n");
+}
+
+function formatLogEntry(entry, index) {
+  var lines = ["# " + (index + 1) + " · " + tr("logEntry")];
+  appendLogField(lines, tr("logTime"), formatLogTimestamp(entry.timestamp), false);
+  appendLogField(lines, tr("logAction"), entry.action, false);
+  if (typeof entry.success === "boolean") appendLogField(lines, tr("logResult"), entry.success ? tr("logSucceeded") : tr("logFailed"), false);
+  appendLogField(lines, tr("logPrincipal"), entry.principalId, false);
+  appendLogField(lines, tr("logCorrelation"), entry.correlationId, false);
+  appendLogField(lines, tr("logCommand"), entry.command, true);
+  appendLogField(lines, tr("logStdout"), entry.stdout, true);
+  appendLogField(lines, tr("logStderr"), entry.stderr, true);
+  appendLogField(lines, tr("logMetadata"), entry.metadata, true);
+
+  var known = ["timestamp", "action", "success", "principalId", "correlationId", "command", "stdout", "stderr", "metadata"];
+  var additional = {};
+  Object.keys(entry).forEach(function(key) {
+    if (!known.includes(key)) additional[key] = entry[key];
+  });
+  if (Object.keys(additional).length) appendLogField(lines, tr("logAdditionalFields"), additional, true);
+  return lines.join("\n");
+}
+
+function appendLogField(lines, label, value, block) {
+  if (value === undefined || value === null || value === "") return;
+  var formatted = formatLogValue(value);
+  if (block || formatted.includes("\n")) lines.push("", label + ":", quoteLogBlock(formatted));
+  else lines.push(label + ": " + formatted);
+}
+
+function quoteLogBlock(value) {
+  return value.split("\n").map(function(line) { return "│ " + line; }).join("\n");
+}
+
+function formatLogValue(value) {
+  if (typeof value === "string") return value.replace(/\r\n?/g, "\n");
+  if (typeof value === "object") return JSON.stringify(value, null, 2);
+  return String(value);
+}
+
+function formatLogTimestamp(value) {
+  if (!value) return "";
+  var exact = String(value);
+  var date = new Date(value);
+  if (Number.isNaN(date.getTime())) return exact;
+  var local = date.toLocaleString(locale === "zh" ? "zh-CN" : "en");
+  return exact + " · " + tr("logLocalTime", { value: local });
 }
 
 /* Utilities */
@@ -504,7 +580,11 @@ document.getElementById("createTokenBtn").addEventListener("click", createToken)
 document.getElementById("refreshTokensBtn").addEventListener("click", loadTokens);
 document.getElementById("refreshLogsBtn").addEventListener("click", loadLogs);
 document.getElementById("copyMcpExampleBtn").addEventListener("click", copyMcpExample);
-document.getElementById("closeLogBtn").addEventListener("click", function() { document.getElementById("logViewerPanel").style.display = "none"; });
+document.getElementById("closeLogBtn").addEventListener("click", function() {
+  logViewRequestId += 1;
+  document.getElementById("logViewerPanel").style.display = "none";
+  currentLogContent = "";
+});
 document.getElementById("dialogCancel").addEventListener("click", closeDialog);
 document.getElementById("dialogConfirm").addEventListener("click", dialogAction);
 document.getElementById("languageToggle").addEventListener("click", function() {
@@ -514,6 +594,7 @@ document.getElementById("languageToggle").addEventListener("click", function() {
   if (statusData) { renderOverview(); renderTunnels(); renderDomainWarning(); renderMcpExample(); }
   if (tokensData.length) renderTokenList();
   if (logsData) renderLogFileList();
+  if (currentLogContent) document.getElementById("logContent").textContent = formatLogContent(currentLogContent);
 });
 document.querySelectorAll("[data-section]").forEach(function(button) {
   button.addEventListener("click", function() { switchSection(button.dataset.section); });
