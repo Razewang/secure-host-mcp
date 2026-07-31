@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.15](https://github.com/Razewang/secure-host-mcp/compare/v0.1.14...v0.1.15) (2026-07-31)
+
+
+### Features
+
+* format audit log display ([512c8db](https://github.com/Razewang/secure-host-mcp/commit/512c8db3e04e051bd8c85a958eb76883127a0c76))
+* format audit log display ([984b735](https://github.com/Razewang/secure-host-mcp/commit/984b73512fb883ab3d56cd976df9c8bb00b1abe8))
+
+
+### Bug Fixes
+
+* invalidate stale log view requests ([0432bf0](https://github.com/Razewang/secure-host-mcp/commit/0432bf0bfca9e6dbc3965663146647e2f4caf9b7))
+* preserve audit log boundaries ([38694f1](https://github.com/Razewang/secure-host-mcp/commit/38694f1f5a1bd4889f9d0a4f272429fc104d96c1))
+
 ## [0.1.14](https://github.com/Razewang/secure-host-mcp/compare/v0.1.13...v0.1.14) (2026-07-30)
 
 
