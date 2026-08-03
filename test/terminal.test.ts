@@ -42,7 +42,7 @@ async function waitForMarker(
   marker: string,
   access: RuntimeAccess,
   requiredFragment?: string,
-  attempts = 100
+  attempts = 200
 ): Promise<Record<string, unknown>> {
   let last: Record<string, unknown> = {};
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -52,6 +52,23 @@ async function waitForMarker(
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`terminal marker not observed: ${marker}; last=${JSON.stringify(last)}`);
+}
+
+async function waitForAuditEntries(dir: string, required: readonly string[], attempts = 200): Promise<string> {
+  let content = "";
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const auditDir = path.join(dir, "audit");
+    let files: string[] = [];
+    try {
+      files = await readdir(auditDir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    content = (await Promise.all(files.map((file) => readFile(path.join(auditDir, file), "utf8")))).join("");
+    if (required.every((entry) => content.includes(entry))) return content;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return content;
 }
 
 async function writeUntilMarker(
@@ -142,10 +159,14 @@ describe("TerminalManager", () => {
     manager.resize(id, 90, 25, owner);
     manager.interrupt(id, owner);
     manager.close(id, owner);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const auditDir = path.join(dir, "audit");
-    const files = await readdir(auditDir);
-    const content = (await Promise.all(files.map((file) => readFile(path.join(auditDir, file), "utf8")))).join("");
+    const content = await waitForAuditEntries(dir, [
+      "terminal.create",
+      "terminal.write",
+      "bytesWritten",
+      "terminal.resize",
+      "terminal.interrupt",
+      "terminal.close"
+    ]);
     expect(content).toContain("terminal.create");
     expect(content).toContain("terminal.write");
     expect(content).toContain("bytesWritten");
