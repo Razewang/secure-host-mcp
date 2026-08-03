@@ -525,8 +525,10 @@ function appendLogField(lines, label, value, block) {
   else lines.push(label + ": " + formatted);
 }
 
+var logLineBreakPattern = new RegExp("[" + String.fromCharCode(0x000A, 0x000B, 0x000C, 0x0085, 0x2028, 0x2029) + "]");
+
 function quoteLogBlock(value) {
-  return value.split(/[\n\u000B\u000C\u0085\u2028\u2029]/).map(function(line) { return "│ " + line; }).join("\n");
+  return value.split(logLineBreakPattern).map(function(line) { return "│ " + line; }).join("\n");
 }
 
 function formatLogValue(value) {
