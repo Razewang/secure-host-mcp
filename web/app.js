@@ -526,7 +526,7 @@ function appendLogField(lines, label, value, block) {
 }
 
 function quoteLogBlock(value) {
-  return value.split(/[\n\u2028\u2029]/).map(function(line) { return "│ " + line; }).join("\n");
+  return value.split(/[\n\u000B\u000C\u0085\u2028\u2029]/).map(function(line) { return "│ " + line; }).join("\n");
 }
 
 function formatLogValue(value) {
