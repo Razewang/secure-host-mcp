@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.16](https://github.com/Razewang/secure-host-mcp/compare/v0.1.15...v0.1.16) (2026-08-03)
+
+
+### Bug Fixes
+
+* cover all mandatory Unicode log line breaks ([9d10544](https://github.com/Razewang/secure-host-mcp/commit/9d105446eaa53e9237e02d15e4f99d7e7dadf2aa))
+* prefix Unicode audit log lines ([57cb76c](https://github.com/Razewang/secure-host-mcp/commit/57cb76c5b0b3903105692e7f5d1e3ea1ec465d7a))
+* prefix Unicode-separated audit log output ([833ee13](https://github.com/Razewang/secure-host-mcp/commit/833ee13de9a8a01585e0aca55243ceca936b139d))
+* satisfy lint for Unicode line break handling ([ea349e3](https://github.com/Razewang/secure-host-mcp/commit/ea349e3b92016fdf6f2b9a8e27e279657f60357c))
+
 ## [0.1.15](https://github.com/Razewang/secure-host-mcp/compare/v0.1.14...v0.1.15) (2026-07-31)
 
 
